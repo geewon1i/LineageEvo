@@ -1,0 +1,27 @@
+[project]
+name = "lineage-evo"
+version = "0.1.0"
+description = "Lineage-conditioned search priors for LLM-based evolutionary factor mining."
+requires-python = ">=3.10"
+dependencies = [
+  "pydantic>=2.6,<3",
+]
+
+[project.scripts]
+lineage-evo = "lineage_evo.cli:main"
+
+[project.optional-dependencies]
+test = [
+  "pytest>=8,<9",
+]
+qlib = [
+  "pyqlib==0.9.7",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+
+[tool.setuptools.packages.find]
+include = ["lineage_evo*"]
+exclude = ["tests*", "runs*"]

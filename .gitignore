@@ -1,0 +1,22 @@
+# Python caches and packaging
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+build/
+dist/
+
+# Local experiment outputs
+runs/
+*.log
+
+# Local secrets and machine-specific config
+.env
+.env.*
+!.env.example
+
+# Local data should be configured through .env/configs, not committed.
+qlib_data/
+data/
