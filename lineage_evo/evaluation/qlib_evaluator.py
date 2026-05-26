@@ -7,6 +7,7 @@ import math
 from lineage_evo.config import QlibConfig
 from lineage_evo.evaluation.evaluator import EvaluationResult
 from lineage_evo.factor import FactorExpression, QlibExpressionNormalizer
+from lineage_evo.qlib_warnings import suppress_qlib_all_nan_slice_warning
 
 
 class QlibEvaluator:
@@ -49,7 +50,8 @@ class QlibEvaluator:
         fields = [qlib_expr, self.config.label_expression]
         start = min(self.config.train_start, self.config.valid_start)
         end = max(self.config.train_end, self.config.valid_end)
-        data = D.features(D.instruments(self.config.market), fields, start_time=start, end_time=end)
+        with suppress_qlib_all_nan_slice_warning():
+            data = D.features(D.instruments(self.config.market), fields, start_time=start, end_time=end)
         data = data.rename(columns={qlib_expr: "factor", self.config.label_expression: "label"})
         data = data.sort_index().replace([float("inf"), float("-inf")], float("nan")).dropna()
         if data.empty:

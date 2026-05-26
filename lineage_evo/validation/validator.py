@@ -25,7 +25,7 @@ class Validator:
         self,
         allowed_variables: set[str],
         allowed_functions: set[str],
-        max_length: int = 40,
+        max_length: int = 50,
     ) -> None:
         self.allowed_variables = allowed_variables
         self.allowed_functions = allowed_functions
@@ -52,4 +52,3 @@ class Validator:
                 reasons.append(f"unsupported syntax: {type(node).__name__}")
 
         return ValidationResult(not reasons, reasons)
-

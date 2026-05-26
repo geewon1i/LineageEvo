@@ -37,21 +37,44 @@ class PriorRewriteInput:
     child_id: str | None = None
     lineage_id: str | None = None
     recent_lineage_statistics: dict[str, Any] | None = None
+    update_trigger: dict[str, Any] | None = None
 
-    def evidence_dict(self) -> dict[str, Any]:
+    def evidence_dict(self, *, compact: bool = False) -> dict[str, Any]:
+        child_metrics = self.train_score or self.validation_score
+        statistics_key = "lineage_summary" if compact else "recent_lineage_statistics"
         return {
             "generation": self.generation,
             "operator": self.operator.value,
             "target_prior_type": self.target_prior_type.value,
             "parent_factors": [factor.normalized for factor in self.parent_factors],
             "child_factor": self.child_factor.normalized if self.child_factor else None,
-            "train_score": self.train_score.as_dict() if self.train_score else None,
-            "validation_score": self.validation_score.as_dict() if self.validation_score else None,
-            "delta_train_score": self.delta_train_score,
-            "delta_validation_score": self.delta_validation_score,
+            "child_metrics": child_metrics.as_dict() if child_metrics else None,
+            "delta_metrics": {
+                "train_icir_delta": self.delta_train_score,
+                "validation_icir_delta": self.delta_validation_score,
+            },
             "validity_info": self.validity_info,
-            "recent_lineage_statistics": self.recent_lineage_statistics,
+            statistics_key: self._compact_lineage_summary() if compact else self.recent_lineage_statistics,
         }
+
+    def _compact_lineage_summary(self) -> dict[str, Any] | None:
+        stats = self.recent_lineage_statistics
+        if not stats:
+            return None
+        keys = [
+            "age",
+            "size",
+            "active_size",
+            "best_validation_icir",
+            "lineage_trend_state",
+            "lineage_trend_signal",
+            "train_validation_icir_gap",
+        ]
+        summary = {key: stats.get(key) for key in keys if key in stats}
+        deltas = stats.get("recent_validation_strength_deltas")
+        if isinstance(deltas, list):
+            summary["recent_validation_strength_deltas"] = deltas[-3:]
+        return summary
 
 
 @dataclass(frozen=True)
@@ -69,6 +92,7 @@ class PriorRewriteResult:
     fallback_used: bool
     schema_valid: bool
     raw_llm_output: str
+    deterministic_updates: dict[str, Any] = field(default_factory=dict)
 
     def as_log_dict(self) -> dict[str, Any]:
         return {
@@ -82,4 +106,5 @@ class PriorRewriteResult:
             "fallback_used": self.fallback_used,
             "schema_valid": self.schema_valid,
             "raw_llm_output": self.raw_llm_output,
+            "deterministic_updates": self.deterministic_updates,
         }

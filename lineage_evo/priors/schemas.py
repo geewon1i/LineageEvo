@@ -67,12 +67,14 @@ class CommonInvalidPattern(StrictModel):
 
 
 class MutationPrior(StrictModel):
-    quality_trend: str
     successful_mutation_patterns: list[PatternEvidence]
     failed_mutation_patterns: list[FailedPatternEvidence]
-    mutation_strength: MutationStrength
-    stagnation_state: StagnationState
+    hint: str
     bias_risk: RiskLevel
+
+
+class MutationSemanticPrior(MutationPrior):
+    pass
 
 
 class CrossoverPrior(StrictModel):
@@ -80,6 +82,7 @@ class CrossoverPrior(StrictModel):
     harmful_patterns: list[FailedPatternEvidence]
     complementarity_profile: str
     heritable_structures: list[StructureEvidence]
+    hint: str
     crossover_risk: RiskLevel
 
 
@@ -87,7 +90,7 @@ class GlobalMutationPrior(StrictModel):
     global_successful_mutation_patterns: list[PatternEvidence]
     global_failed_mutation_patterns: list[FailedPatternEvidence]
     common_invalid_patterns: list[CommonInvalidPattern]
-    general_mutation_guidance: str
+    hint: str
     last_updated_generation: NonNegativeInt
 
 
@@ -95,6 +98,5 @@ class GlobalCrossoverPrior(StrictModel):
     global_transferable_patterns: list[PatternEvidence]
     global_harmful_patterns: list[FailedPatternEvidence]
     global_complementarity_patterns: list[PatternEvidence]
-    general_crossover_guidance: str
+    hint: str
     last_updated_generation: NonNegativeInt
-

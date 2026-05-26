@@ -1,49 +1,70 @@
-from lineage_evo.prior_fusion import FusionMode, PriorFusionInput, PriorFusionPolicy
-from tests.test_search_integration import global_mutation_prior, mutation_prior
+from lineage_evo.ablation import AblationInput, AblationMode, AblationPolicy
+from lineage_evo.prior_fusion import PriorFusionInput, PriorFusionPolicy
+from tests.test_search_integration import crossover_prior, global_crossover_prior, global_mutation_prior, mutation_prior
 
 
-def test_prior_fusion_ours_full_includes_lineage_and_global():
+def test_prior_fusion_prefers_local_when_lineage_is_healthy():
+    ablation = AblationPolicy().apply(
+        AblationInput(AblationMode.OURS_FULL, "mutation", "l1", mutation_prior("improving"), global_mutation_prior())
+    )
     context = PriorFusionPolicy().fuse(
         PriorFusionInput(
-            mode=FusionMode.OURS_FULL,
-            operator="mutation",
-            lineage_id="l1",
-            lineage_prior=mutation_prior(),
-            global_prior=global_mutation_prior(),
+            ablation_context=ablation,
+            lineage_state={"recent_mean_validation_icir_delta": 0.02, "train_validation_icir_gap": 0.01},
         )
     )
-    assert "lineage_prior" in context.prompt_context
-    assert "global_prior" in context.prompt_context
-    assert context.prior_updates_enabled is True
+    decision = context.prompt_context["fusion_decision"]
+    assert decision["local_weight"] > decision["global_weight"]
+    assert "Mutation experience for this lineage" in context.prompt_context["rendered_priors"]["lineage_prior_text"]
 
 
-def test_prior_fusion_ablation_modes_exclude_expected_context():
+def test_prior_fusion_prefers_global_for_stagnant_or_biased_lineage():
+    prior = mutation_prior("declining")
+    prior.bias_risk = "high"
+    ablation = AblationPolicy().apply(AblationInput(AblationMode.OURS_FULL, "mutation", "l1", prior, global_mutation_prior()))
+    context = PriorFusionPolicy().fuse(
+        PriorFusionInput(
+            ablation_context=ablation,
+            lineage_state={"recent_mean_validation_icir_delta": -0.03, "train_validation_icir_gap": 0.25},
+        )
+    )
+    decision = context.prompt_context["fusion_decision"]
+    assert decision["local_weight"] < decision["global_weight"]
+    assert "global operator prior" in decision["instruction"]
+
+
+def test_prior_fusion_ablation_modes_force_weights():
     lineage_only = PriorFusionPolicy().fuse(
-        PriorFusionInput(FusionMode.LINEAGE_ONLY, "mutation", "l1", mutation_prior(), global_mutation_prior())
+        PriorFusionInput(
+            AblationPolicy().apply(
+                AblationInput(AblationMode.LINEAGE_ONLY, "mutation", "l1", mutation_prior(), global_mutation_prior())
+            )
+        )
     )
     global_only = PriorFusionPolicy().fuse(
-        PriorFusionInput(FusionMode.GLOBAL_ONLY, "mutation", "l1", mutation_prior(), global_mutation_prior())
-    )
-    no_update = PriorFusionPolicy().fuse(
-        PriorFusionInput(FusionMode.NO_PRIOR_UPDATE, "mutation", "l1", mutation_prior(), global_mutation_prior())
-    )
-    assert "lineage_prior" in lineage_only.prompt_context
-    assert "global_prior" not in lineage_only.prompt_context
-    assert "global_prior" in global_only.prompt_context
-    assert "lineage_prior" not in global_only.prompt_context
-    assert no_update.prior_updates_enabled is False
-
-
-def test_shuffled_lineage_prior_uses_other_lineage():
-    context = PriorFusionPolicy().fuse(
         PriorFusionInput(
-            mode=FusionMode.SHUFFLED_LINEAGE_PRIOR,
-            operator="mutation",
-            lineage_id="l1",
-            lineage_prior=mutation_prior("own"),
-            global_prior=global_mutation_prior(),
-            all_lineage_priors={"l1": mutation_prior("own"), "l2": mutation_prior("other")},
+            AblationPolicy().apply(
+                AblationInput(AblationMode.GLOBAL_ONLY, "mutation", "l1", mutation_prior(), global_mutation_prior())
+            )
         )
     )
-    assert context.prompt_context["lineage_prior"]["quality_trend"] == "other"
+    assert lineage_only.prompt_context["fusion_decision"]["local_weight"] == 1.0
+    assert global_only.prompt_context["fusion_decision"]["global_weight"] == 1.0
 
+
+def test_prior_fusion_crossover_renders_both_parent_lineage_priors():
+    p1 = crossover_prior()
+    p1.complementarity_profile = "parent one profile"
+    p2 = crossover_prior()
+    p2.complementarity_profile = "parent two profile"
+    ablation = AblationPolicy().apply(AblationInput(AblationMode.OURS_FULL, "crossover", "l1", p1, global_crossover_prior()))
+    context = PriorFusionPolicy().fuse(
+        PriorFusionInput(
+            ablation_context=ablation,
+            parent_lineage_ids=["l1", "l2"],
+            parent_lineage_priors=[p1, p2],
+        )
+    )
+    texts = context.prompt_context["rendered_priors"]["parent_lineage_prior_texts"]
+    assert "parent one profile" in texts[0]
+    assert "parent two profile" in texts[1]

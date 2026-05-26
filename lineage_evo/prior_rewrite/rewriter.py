@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 from lineage_evo.llm import LLMClient
 from lineage_evo.prompts import PRIOR_REWRITE_SYSTEM_PROMPT, build_prior_rewrite_prompt
+from lineage_evo.prior_rewrite.trigger import LineageControlStateController
 from lineage_evo.prior_rewrite.types import LLMRewriteResponse, PriorRewriteInput, PriorTarget
 from lineage_evo.priors import CrossoverPrior, GlobalCrossoverPrior, GlobalMutationPrior, MutationPrior
 
@@ -18,6 +19,7 @@ class LLMPriorRewriter:
     def __init__(self, llm_client: LLMClient, reporter=None) -> None:
         self.llm_client = llm_client
         self.reporter = reporter
+        self.control_state_controller = LineageControlStateController()
 
     def rewrite_mutation_prior(self, rewrite_input: PriorRewriteInput) -> LLMRewriteResponse:
         self._ensure_target(rewrite_input, PriorTarget.MUTATION_LINEAGE)
@@ -41,12 +43,18 @@ class LLMPriorRewriter:
             "old_prior": rewrite_input.old_prior.model_dump(mode="json")
             if hasattr(rewrite_input.old_prior, "model_dump")
             else rewrite_input.old_prior,
-            "new_evidence": rewrite_input.evidence_dict(),
+            "new_evidence": rewrite_input.evidence_dict(compact=True),
             "expression_diff": rewrite_input.expression_diff.as_dict() if rewrite_input.expression_diff else None,
             "parent_ids": rewrite_input.parent_ids,
             "child_id": rewrite_input.child_id,
             "lineage_id": rewrite_input.lineage_id,
+            "update_trigger": rewrite_input.update_trigger,
         }
+        if rewrite_input.target_prior_type == PriorTarget.MUTATION_LINEAGE and hasattr(rewrite_input.old_prior, "model_dump"):
+            payload["mutation_control_state"] = self.control_state_controller.decide(
+                rewrite_input.old_prior.model_dump(mode="json"),
+                rewrite_input.recent_lineage_statistics,
+            ).as_dict()
         user_prompt = build_prior_rewrite_prompt(payload, schema_model)
         if self.reporter is not None:
             self.reporter.llm_input("PRIOR REWRITE", PRIOR_REWRITE_SYSTEM_PROMPT, user_prompt)

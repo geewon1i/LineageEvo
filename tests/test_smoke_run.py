@@ -2,6 +2,7 @@ import json
 
 from lineage_evo.config import SearchConfig
 from lineage_evo.experiments import ExperimentRunner
+from lineage_evo.seed import MockSeedGenerator
 
 
 def test_fully_mocked_smoke_run_writes_required_outputs(tmp_path):
@@ -27,3 +28,25 @@ def test_fully_mocked_smoke_run_writes_required_outputs(tmp_path):
     assert candidate["status"] == "valid"
     assert candidate["operator"] == "seed"
     assert "raw_output" in candidate
+
+
+def test_seed_generation_logs_and_skips_duplicate_normalized_expression(tmp_path):
+    runner = ExperimentRunner(
+        log_dir=tmp_path,
+        config=SearchConfig(seed_count=2, target_valid_evaluations=0, max_seed_generation_attempts=3),
+        seed_generator=MockSeedGenerator(
+            [
+                '{"factor": "$close", "rationale": "seed"}',
+                '{"factor": "close", "rationale": "duplicate"}',
+                '{"factor": "$open", "rationale": "seed"}',
+            ]
+        ),
+    )
+
+    engine = runner.run()
+
+    seed_nodes = [node for node in engine.dag.nodes.values() if node.generation == 0]
+    records = [json.loads(line) for line in (tmp_path / "candidate_log.jsonl").read_text(encoding="utf-8").splitlines()]
+
+    assert len(seed_nodes) == 2
+    assert any(record["status"] == "duplicate_candidate" for record in records)

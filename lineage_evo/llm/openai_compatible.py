@@ -58,6 +58,10 @@ class OpenAICompatibleLLMClient:
                 last_error = RuntimeError(f"LLM API request failed with HTTP {exc.code}: {detail}")
             except error.URLError as exc:
                 last_error = RuntimeError(f"LLM API request failed: {exc.reason}")
+            except TimeoutError as exc:
+                last_error = RuntimeError(f"LLM API request timed out: {exc}")
+            except OSError as exc:
+                last_error = RuntimeError(f"LLM API network error: {exc}")
             if attempt < attempts:
                 time.sleep(self.config.retry_wait_seconds)
         if last_error is not None:

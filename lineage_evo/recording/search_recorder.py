@@ -36,6 +36,8 @@ class SearchRecorder:
     def log_rewrite(self, rewrite_input, result) -> None:
         old_prior = rewrite_input.old_prior.model_dump(mode="json") if hasattr(rewrite_input.old_prior, "model_dump") else rewrite_input.old_prior
         accepted = result.updated_prior.model_dump(mode="json") if hasattr(result.updated_prior, "model_dump") else result.updated_prior
+        evidence = rewrite_input.evidence_dict(compact=True)
+        evidence.pop("lineage_summary", None)
         self._append_jsonl(
             self.prior_rewrite_log_path,
             {
@@ -47,7 +49,8 @@ class SearchRecorder:
                 "parent_ids": rewrite_input.parent_ids,
                 "child_id": rewrite_input.child_id,
                 "old_prior": old_prior,
-                "new_evidence": rewrite_input.evidence_dict(),
+                "new_evidence": evidence,
+                "update_trigger": rewrite_input.update_trigger,
                 "expression_diff": rewrite_input.expression_diff.as_dict() if rewrite_input.expression_diff else None,
                 "raw_llm_output": result.raw_llm_output,
                 "accepted_updated_prior": accepted,
@@ -56,6 +59,7 @@ class SearchRecorder:
                 "warnings": result.warnings,
                 "fields_changed": result.fields_changed,
                 "removed_patterns": result.removed_patterns,
+                "deterministic_updates": result.deterministic_updates,
             },
         )
 
@@ -86,6 +90,9 @@ class SearchRecorder:
 
     def write_test_ic_results(self, rows: list[dict[str, Any]]) -> None:
         self._write_csv(self.log_dir / "test_ic_results.csv", rows)
+
+    def write_composite_test_ic_results(self, rows: list[dict[str, Any]]) -> None:
+        self._write_csv(self.log_dir / "composite_test_ic_results.csv", rows)
 
     def write_backtest_summary(self, rows: list[dict[str, Any]]) -> None:
         self._write_csv(self.log_dir / "backtest_summary.csv", rows)

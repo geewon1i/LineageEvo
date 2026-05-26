@@ -8,11 +8,9 @@ from lineage_evo.priors import CrossoverPrior, GlobalCrossoverPrior, GlobalMutat
 
 def default_mutation_prior() -> MutationPrior:
     return MutationPrior(
-        quality_trend="insufficient lineage evidence",
         successful_mutation_patterns=[],
         failed_mutation_patterns=[],
-        mutation_strength="moderate",
-        stagnation_state="not_stagnant",
+        hint="No lineage-specific mutation experience yet; prefer compact, valid exploratory changes.",
         bias_risk="low",
     )
 
@@ -23,6 +21,7 @@ def default_crossover_prior() -> CrossoverPrior:
         harmful_patterns=[],
         complementarity_profile="insufficient crossover evidence",
         heritable_structures=[],
+        hint="No lineage-specific crossover experience yet; preserve useful primary structure and import only clearly complementary subtrees.",
         crossover_risk="low",
     )
 
@@ -32,7 +31,7 @@ def default_global_mutation_prior() -> GlobalMutationPrior:
         global_successful_mutation_patterns=[],
         global_failed_mutation_patterns=[],
         common_invalid_patterns=[],
-        general_mutation_guidance="Prefer compact, executable factors and preserve validation robustness.",
+        hint="Prefer compact, executable mutation candidates and preserve validation robustness across lineages.",
         last_updated_generation=0,
     )
 
@@ -42,7 +41,7 @@ def default_global_crossover_prior() -> GlobalCrossoverPrior:
         global_transferable_patterns=[],
         global_harmful_patterns=[],
         global_complementarity_patterns=[],
-        general_crossover_guidance="Combine complementary parent structures without making expressions too long.",
+        hint="Combine complementary parent structures without making expressions too long or losing the primary parent's backbone.",
         last_updated_generation=0,
     )
 

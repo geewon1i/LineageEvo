@@ -8,7 +8,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from lineage_evo.candidate import CandidateGenerator, MockCandidateGenerator
-from lineage_evo.config import BacktestConfig, QlibConfig, SearchConfig, SelectionConfig
+from lineage_evo.config import BacktestConfig, PriorUpdateConfig, QlibConfig, SearchConfig, SelectionConfig
 from lineage_evo.evaluation import Evaluator, MockEvaluator
 from lineage_evo.experiments.defaults import (
     default_crossover_prior,
@@ -17,10 +17,10 @@ from lineage_evo.experiments.defaults import (
     default_mutation_prior,
 )
 from lineage_evo.lineage import LineageDAG
-from lineage_evo.factor import QlibExpressionValidator
+from lineage_evo.factor import QlibExpressionNormalizer, QlibExpressionValidator
 from lineage_evo.finalize import Finalizer
-from lineage_evo.prior_fusion import FusionMode
-from lineage_evo.prior_rewrite import MockPriorRewriter, PriorManager
+from lineage_evo.ablation import AblationMode
+from lineage_evo.prior_rewrite import MockPriorRewriter, MutationStrengthController, PriorManager, PriorUpdateTrigger
 from lineage_evo.recording import SearchRecorder
 from lineage_evo.search.engine import PriorStores, SearchEngine
 from lineage_evo.seed import MockSeedGenerator, SeedRequest
@@ -34,7 +34,8 @@ class ExperimentRunner:
         *,
         log_dir: str | Path,
         config: SearchConfig | None = None,
-        fusion_mode: FusionMode = FusionMode.OURS_FULL,
+        ablation_mode: AblationMode = AblationMode.OURS_FULL,
+        fusion_mode: AblationMode | None = None,
         run_id: str | None = None,
         candidate_generator: CandidateGenerator | None = None,
         prior_rewriter=None,
@@ -44,12 +45,13 @@ class ExperimentRunner:
         qlib_config: QlibConfig | None = None,
         selection_config: SelectionConfig | None = None,
         backtest_config: BacktestConfig | None = None,
+        prior_update_config: PriorUpdateConfig | None = None,
         component_names: dict[str, str] | None = None,
         extra_config: dict | None = None,
         reporter=None,
     ) -> None:
         self.config = config or SearchConfig(target_valid_evaluations=10)
-        self.fusion_mode = fusion_mode
+        self.ablation_mode = fusion_mode or ablation_mode
         self.run_id = run_id or f"mock_{int(time.time())}"
         self.recorder = SearchRecorder(log_dir)
         self.candidate_generator = candidate_generator
@@ -60,6 +62,7 @@ class ExperimentRunner:
         self.qlib_config = qlib_config
         self.selection_config = selection_config or SelectionConfig()
         self.backtest_config = backtest_config or BacktestConfig(enabled=False)
+        self.prior_update_config = prior_update_config or PriorUpdateConfig()
         self.component_names = component_names or {}
         self.extra_config = extra_config or {}
         self.reporter = reporter
@@ -68,7 +71,7 @@ class ExperimentRunner:
         evaluator = self.evaluator or MockEvaluator()
         validator = self.validator or QlibExpressionValidator(max_length=self.config.factor_length_limit, execute_check=False)
         dag = LineageDAG(active_pool_size=self.config.active_pool_size)
-        self._generate_seed_nodes(dag, evaluator, validator)
+        self._generate_seed_nodes(dag, evaluator, validator)     #生成初始因子
 
         prior_stores = PriorStores(
             mutation_by_lineage={node.lineage_id: default_mutation_prior() for node in dag.nodes.values()},
@@ -78,7 +81,10 @@ class ExperimentRunner:
         )
         candidate_generator = self.candidate_generator or MockCandidateGenerator(self._mock_candidate_outputs())
         prior_rewriter = self.prior_rewriter or MockPriorRewriter()
-        prior_manager = PriorManager(logger=self.recorder)
+        prior_manager = PriorManager(
+            logger=self.recorder,
+            strength_controller=MutationStrengthController(self.prior_update_config),
+        )
         engine = SearchEngine(
             run_id=self.run_id,
             dag=dag,
@@ -89,7 +95,8 @@ class ExperimentRunner:
             prior_manager=prior_manager,
             config=self.config,
             candidate_generator=candidate_generator,
-            fusion_mode=self.fusion_mode,
+            prior_update_trigger=PriorUpdateTrigger(self.prior_update_config),
+            ablation_mode=self.ablation_mode,
             recorder=self.recorder,
             reporter=self.reporter,
         )
@@ -100,7 +107,8 @@ class ExperimentRunner:
                 "search_config": asdict(self.config),
                 "selection_config": asdict(self.selection_config),
                 "backtest_config": asdict(self.backtest_config),
-                "fusion_mode": self.fusion_mode.value,
+                "prior_update_config": asdict(self.prior_update_config),
+                "ablation_mode": self.ablation_mode.value,
                 "components": {
                     "prior_rewriter": self.component_names.get("prior_rewriter", "MockPriorRewriter"),
                     "candidate_generator": self.component_names.get("candidate_generator", "MockCandidateGenerator"),
@@ -124,6 +132,8 @@ class ExperimentRunner:
 
     def _generate_seed_nodes(self, dag: LineageDAG, evaluator: Evaluator, validator) -> None:
         seed_generator = self.seed_generator or MockSeedGenerator(self._mock_seed_outputs())
+        normalizer = QlibExpressionNormalizer()
+        normalized_seed_index: dict[str, str] = {}
         valid_count = 0
         attempts = 0
         while valid_count < self.config.seed_count and attempts < self.config.max_seed_generation_attempts:
@@ -135,6 +145,7 @@ class ExperimentRunner:
                     seed_index=valid_count,
                     existing_seed_expressions=[dag.nodes[node_id].expression.raw for node_id in dag.active_ids],
                     constraints={
+                        "factor_prompt_length_limit": self.config.factor_prompt_length_limit,
                         "factor_length_limit": self.config.factor_length_limit,
                         "exactly_one_factor": True,
                         "target_seed_count": self.config.seed_count,
@@ -149,6 +160,22 @@ class ExperimentRunner:
                     self.reporter.failure(status="seed_generation_failure", reason=generated.parse_result.failure_reason, raw_output=generated.raw_output)
                 continue
             expression = generated.parse_result.factor
+            try:
+                normalized = normalizer.normalize(expression)
+            except Exception:
+                normalized = None
+            if normalized is not None and normalized in normalized_seed_index:
+                self._log_seed_candidate(
+                    attempts,
+                    generated.raw_output,
+                    "duplicate_candidate",
+                    "duplicate normalized expression",
+                    duplicate_of=normalized_seed_index[normalized],
+                    normalized_expression=normalized,
+                )
+                if self.reporter is not None:
+                    self.reporter.failure(status="seed_duplicate_candidate", reason="duplicate normalized expression", raw_output=generated.raw_output)
+                continue
             validation = validator.validate(expression)
             if not validation.is_valid:
                 reason = "; ".join(validation.reasons)
@@ -165,6 +192,8 @@ class ExperimentRunner:
                     self.reporter.failure(status="seed_evaluation_failure", reason=reason, raw_output=generated.raw_output)
                 continue
             node = dag.add_seed(expression, evaluation)
+            if normalized is not None:
+                normalized_seed_index.setdefault(normalized, node.factor_id)
             valid_count += 1
             self._log_seed_candidate(attempts, generated.raw_output, "valid", None, child_id=node.factor_id)
             if self.reporter is not None:
@@ -182,6 +211,8 @@ class ExperimentRunner:
         status: str,
         failure_reason: str | None,
         child_id: str | None = None,
+        duplicate_of: str | None = None,
+        normalized_expression: str | None = None,
     ) -> None:
         self.recorder.log_candidate(
             {
@@ -193,6 +224,8 @@ class ExperimentRunner:
                 "status": status,
                 "failure_reason": failure_reason,
                 "raw_output": raw_output,
+                "duplicate_of": duplicate_of,
+                "normalized_expression": normalized_expression,
                 "attempt": attempt,
             }
         )
@@ -223,5 +256,8 @@ class ExperimentRunner:
             '{"factor": "TsCorr($close, $volume, 20)", "rationale": "mock mutation"}',
             '{"factor": "TsDelta($close, 5)", "rationale": "mock mutation"}',
             '{"factor": "TsStd($vwap, 10)", "rationale": "mock crossover"}',
+            '{"factor": "TsSum($volume, 10)", "rationale": "mock mutation"}',
+            '{"factor": "TsRank($close, 10)", "rationale": "mock crossover"}',
+            '{"factor": "Abs(TsDelta($open, 5))", "rationale": "mock mutation"}',
         ]
         return list(itertools.islice(itertools.cycle(templates), 500))

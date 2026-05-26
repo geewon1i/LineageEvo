@@ -9,6 +9,7 @@ from typing import Any, Type
 from pydantic import BaseModel, ValidationError
 
 from lineage_evo.config import PriorRewriteConfig
+from lineage_evo.prior_rewrite.trigger import MutationStrengthController
 from lineage_evo.prior_rewrite.types import LLMRewriteResponse, PriorRewriteInput, PriorRewriteResult, PriorTarget
 from lineage_evo.priors.schemas import (
     CommonInvalidPattern,
@@ -32,9 +33,15 @@ class PriorManagerConfig(PriorRewriteConfig):
 class PriorManager:
     """Validate, constrain, prune, and log complete prior rewrites."""
 
-    def __init__(self, config: PriorManagerConfig | None = None, logger: Any | None = None) -> None:
+    def __init__(
+        self,
+        config: PriorManagerConfig | None = None,
+        logger: Any | None = None,
+        strength_controller: MutationStrengthController | None = None,
+    ) -> None:
         self.config = config or PriorManagerConfig()
         self.logger = logger
+        self.strength_controller = strength_controller or MutationStrengthController()
 
     def accept_rewrite(
         self,
@@ -54,7 +61,7 @@ class PriorManager:
         old_prior = rewrite_input.old_prior
         before_dump = old_prior.model_dump(mode="json") if hasattr(old_prior, "model_dump") else old_prior
 
-        candidate, removed_by_constraints, constraint_warnings = self._apply_constraints(candidate, rewrite_input)
+        candidate, removed_by_constraints, constraint_warnings, deterministic_updates = self._apply_constraints(candidate, rewrite_input)
         warnings.extend(constraint_warnings)
         after_dump = candidate.model_dump(mode="json")
 
@@ -71,14 +78,35 @@ class PriorManager:
             fallback_used=False,
             schema_valid=True,
             raw_llm_output=llm_response.raw_content,
+            deterministic_updates=deterministic_updates,
         )
         self._log(rewrite_input, result)
         return result
 
-    def _apply_constraints(self, prior: BaseModel, rewrite_input: PriorRewriteInput) -> tuple[BaseModel, list[str], list[str]]:
+    def fallback_on_rewrite_error(
+        self,
+        rewrite_input: PriorRewriteInput,
+        error: Exception | str,
+    ) -> PriorRewriteResult:
+        """Keep the old prior when the LLM call itself fails."""
+
+        if isinstance(error, Exception):
+            warning = f"prior rewrite call failed: {type(error).__name__}: {error}"
+        else:
+            warning = f"prior rewrite call failed: {error}"
+        result = self._fallback_result(rewrite_input, LLMRewriteResponse(raw_content=""), warning)
+        self._log(rewrite_input, result)
+        return result
+
+    def _apply_constraints(
+        self,
+        prior: BaseModel,
+        rewrite_input: PriorRewriteInput,
+    ) -> tuple[BaseModel, list[str], list[str], dict[str, Any]]:
         data = prior.model_dump(mode="json")
         removed: list[str] = []
         warnings: list[str] = []
+        deterministic_updates: dict[str, Any] = {}
         list_fields = self._pattern_list_fields(data)
 
         for field_name in list_fields:
@@ -91,6 +119,12 @@ class PriorManager:
             data[field_name] = pruned
             removed.extend([f"{field_name}:{pattern}" for pattern in field_removed])
             warnings.extend(field_warnings)
+
+        if "hint" in data:
+            compact_hint = self._compact_text(str(data.get("hint", "")))
+            if compact_hint != data.get("hint"):
+                warnings.append("truncated overlong hint")
+            data["hint"] = compact_hint
 
         if (
             isinstance(prior, MutationPrior)
@@ -108,8 +142,15 @@ class PriorManager:
                 warnings,
             )
 
+        if isinstance(prior, MutationPrior):
+            control_decision = self.strength_controller.decide(data, rewrite_input.recent_lineage_statistics)
+            deterministic_updates["search_control_state"] = {
+                "read_only_fields": ["quality_trend", "stagnation_state", "mutation_strength"],
+                "accepted": control_decision.as_dict(),
+            }
+
         schema_model = type(prior)
-        return schema_model.model_validate(data), removed, warnings
+        return schema_model.model_validate(data), removed, warnings, deterministic_updates
 
     def _sanitize_pattern_list(
         self,

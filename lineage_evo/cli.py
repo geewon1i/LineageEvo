@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 from pathlib import Path
 import time
 
@@ -14,8 +15,8 @@ from lineage_evo.experiments.defaults import default_mutation_prior
 from lineage_evo.factor import FactorExpression, QlibExpressionValidator, diff_expressions
 from lineage_evo.lineage import OperatorType
 from lineage_evo.llm import OpenAICompatibleLLMClient
+from lineage_evo.ablation import AblationMode
 from lineage_evo.prior_fusion import FusedPriorContext
-from lineage_evo.prior_fusion import FusionMode
 from lineage_evo.prior_rewrite import LLMPriorRewriter, MockPriorRewriter, PriorRewriteInput, PriorTarget
 from lineage_evo.recording import ConsoleReporter, RunDirectoryResolver
 from lineage_evo.seed import LLMSeedGenerator, MockSeedGenerator
@@ -30,7 +31,9 @@ def main() -> None:
     smoke.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
     smoke.add_argument("--target-valid", type=int, default=None)
     smoke.add_argument("--log-dir", type=Path, default=Path("runs") / "smoke")
-    smoke.add_argument("--fusion-mode", choices=[mode.value for mode in FusionMode], default=FusionMode.OURS_FULL.value)
+    mode_choices = [mode.value for mode in AblationMode]
+    smoke.add_argument("--ablation-mode", choices=mode_choices, default=None)
+    smoke.add_argument("--fusion-mode", dest="fusion_mode", choices=mode_choices, default=None, help="Deprecated alias for --ablation-mode.")
     smoke.add_argument("--llm", choices=["mock", "openai-compatible"], default=None)
     smoke.add_argument("--candidate-llm", choices=["mock", "openai-compatible"], default=None)
     smoke.add_argument("--prior-llm", choices=["mock", "openai-compatible"], default=None)
@@ -63,6 +66,8 @@ def main() -> None:
     qlib_smoke.add_argument("--backtest-n-drop", type=int, default=None)
     qlib_smoke.add_argument("--account", type=float, default=None)
     qlib_smoke.add_argument("--skip-final-backtest", action="store_true")
+    qlib_smoke.add_argument("--ablation-mode", choices=mode_choices, default=None)
+    qlib_smoke.add_argument("--fusion-mode", dest="fusion_mode", choices=mode_choices, default=None, help="Deprecated alias for --ablation-mode.")
     qlib_smoke.add_argument("--verbose", action="store_true")
     qlib_smoke.add_argument("--print-llm-io", action="store_true")
     qlib_smoke.add_argument("--no-color", action="store_true")
@@ -90,7 +95,7 @@ def main() -> None:
         runner = ExperimentRunner(
             log_dir=run_dir,
             config=config,
-            fusion_mode=FusionMode(args.fusion_mode),
+            ablation_mode=_ablation_mode_from_args(args),
             run_id=run_id,
             candidate_generator=candidate_generator,
             seed_generator=seed_generator,
@@ -98,6 +103,7 @@ def main() -> None:
             reporter=reporter,
             selection_config=experiment_config.selection,
             backtest_config=BacktestConfig(enabled=False),
+            prior_update_config=experiment_config.prior_update,
             component_names={
                 "candidate_generator": _component_name("candidate", candidate_provider),
                 "seed_generator": _component_name("seed", candidate_provider),
@@ -132,10 +138,12 @@ def main() -> None:
             prior_rewriter=prior_rewriter,
             evaluator=QlibEvaluator(qlib_config),
             validator=QlibExpressionValidator(qlib_config, max_length=config.factor_length_limit),
+            ablation_mode=_ablation_mode_from_args(args),
             reporter=reporter,
             qlib_config=qlib_config,
             selection_config=selection_config,
             backtest_config=backtest_config,
+            prior_update_config=experiment_config.prior_update,
             component_names={
                 "candidate_generator": _component_name("candidate", candidate_provider),
                 "seed_generator": _component_name("seed", candidate_provider),
@@ -158,6 +166,7 @@ def main() -> None:
         print(f"generated_count={engine.counters.generated_count}")
         print(f"market={qlib_config.market}")
         print(f"log_dir={run_dir}")
+        _print_final_outputs(run_dir)
     elif args.command == "llm-dry-run":
         reporter = ConsoleReporter(enabled=args.print_llm_io, print_llm_io=args.print_llm_io, use_color=not args.no_color)
         if args.kind == "candidate":
@@ -166,10 +175,21 @@ def main() -> None:
                     operator="mutation",
                     parent_expressions=[FactorExpression("$close")],
                     fused_prior_context=FusedPriorContext(
-                        mode=FusionMode.OURS_FULL,
+                        mode=AblationMode.OURS_FULL,
                         operator="mutation",
                         lineage_id="dry_lineage",
-                        prompt_context={"lineage_prior": {}, "global_prior": {}},
+                        prompt_context={
+                            "rendered_priors": {
+                                "lineage_prior_text": "Mutation experience for this lineage:\n- Recent trend: dry run.",
+                                "global_prior_text": "Global mutation experience across lineages:\n- Hint: dry run.",
+                            },
+                            "fusion_decision": {
+                                "local_weight": 0.65,
+                                "global_weight": 0.35,
+                                "reason": "dry run",
+                                "instruction": "Balance lineage-specific guidance with global operator guidance.",
+                            },
+                        },
                     ),
                     constraints={"factor_length_limit": 40, "exactly_one_factor": True},
                 )
@@ -248,9 +268,15 @@ def _build_reporter(args) -> ConsoleReporter:
     )
 
 
+def _ablation_mode_from_args(args) -> AblationMode:
+    value = getattr(args, "ablation_mode", None) or getattr(args, "fusion_mode", None) or AblationMode.OURS_FULL.value
+    return AblationMode(value)
+
+
 def _search_config_from_args(args, base: SearchConfig) -> SearchConfig:
     return SearchConfig(
         active_pool_size=base.active_pool_size,
+        factor_prompt_length_limit=base.factor_prompt_length_limit,
         factor_length_limit=base.factor_length_limit,
         target_valid_evaluations=args.target_valid if args.target_valid is not None else base.target_valid_evaluations,
         valid_per_generation=base.valid_per_generation,
@@ -308,6 +334,115 @@ def _run_id(prefix: str, candidate_provider: str, prior_provider: str) -> str:
     candidate = "llm" if candidate_provider != "mock" else "mock"
     prior = "llmprior" if prior_provider != "mock" else "mockprior"
     return f"{prefix}_{candidate}_{prior}_{int(time.time())}"
+
+
+def _print_final_outputs(run_dir: Path) -> None:
+    selected = _read_csv_rows(run_dir / "selected_factors.csv")
+    test_rows = _read_csv_rows(run_dir / "test_ic_results.csv")
+    composite_test_rows = _read_csv_rows(run_dir / "composite_test_ic_results.csv")
+    backtest_rows = _read_csv_rows(run_dir / "backtest_summary.csv")
+    daily_rows = _read_csv_rows(run_dir / "backtest_daily_report.csv")
+
+    if selected:
+        print("selected_factors:")
+        for row in selected:
+            print(
+                "  "
+                f"rank={row.get('selection_rank')} "
+                f"factor_id={row.get('factor_id')} "
+                f"raw_validation_icir={_fmt_float(row.get('raw_validation_icir') or row.get('validation_icir'))} "
+                f"selection_score={_fmt_float(row.get('selection_score'))} "
+                f"orientation={row.get('orientation')} "
+                f"train_icir={_fmt_float(row.get('train_icir'))} "
+                f"expr={_shorten(row.get('expression', ''))}"
+            )
+
+    if composite_test_rows:
+        print("final_composite_test_results:")
+        for row in composite_test_rows:
+            print(
+                "  "
+                f"signal={row.get('signal_name')} "
+                f"selected_count={row.get('selected_count')} "
+                f"test_ic={_fmt_float(row.get('test_ic'))} "
+                f"test_icir={_fmt_float(row.get('test_icir'))} "
+                f"status={row.get('status')}"
+            )
+
+    if test_rows:
+        print("single_factor_oriented_test_results:")
+        for row in test_rows:
+            print(
+                "  "
+                f"rank={row.get('selection_rank')} "
+                f"factor_id={row.get('factor_id')} "
+                f"test_ic={_fmt_float(row.get('test_ic'))} "
+                f"test_icir={_fmt_float(row.get('test_icir'))} "
+                f"status={row.get('status')}"
+            )
+
+    if backtest_rows:
+        summary = backtest_rows[0]
+        print("backtest_summary:")
+        print(
+            "  "
+            f"status={summary.get('status')} "
+            f"annualized_return={_fmt_float(summary.get('annualized_return'))} "
+            f"information_ratio={_fmt_float(summary.get('information_ratio'))} "
+            f"max_drawdown={_fmt_float(summary.get('max_drawdown'))} "
+            f"benchmark={summary.get('benchmark')}"
+        )
+
+    if daily_rows and daily_rows[0].get("account") and daily_rows[-1].get("account"):
+        first_account = _to_float(daily_rows[0].get("account"))
+        final_account = _to_float(daily_rows[-1].get("account"))
+        if first_account and final_account:
+            account_return = final_account / first_account - 1.0
+            benchmark_return = _compound_return(row.get("bench") for row in daily_rows)
+            print(
+                "backtest_account:"
+                f" final_account={final_account:.2f}"
+                f" account_return={account_return:.4f}"
+                f" benchmark_return={benchmark_return:.4f}"
+            )
+
+
+def _read_csv_rows(path: Path) -> list[dict[str, str]]:
+    if not path.exists() or path.stat().st_size == 0:
+        return []
+    with path.open("r", newline="", encoding="utf-8") as handle:
+        return list(csv.DictReader(handle))
+
+
+def _fmt_float(value: str | None) -> str:
+    parsed = _to_float(value)
+    return "NA" if parsed is None else f"{parsed:.6f}"
+
+
+def _to_float(value: str | None) -> float | None:
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except ValueError:
+        return None
+
+
+def _compound_return(values) -> float:
+    total = 1.0
+    seen = False
+    for value in values:
+        parsed = _to_float(value)
+        if parsed is None:
+            continue
+        seen = True
+        total *= 1.0 + parsed
+    return total - 1.0 if seen else 0.0
+
+
+def _shorten(text: str, limit: int = 90) -> str:
+    text = " ".join(text.split())
+    return text if len(text) <= limit else text[: limit - 3] + "..."
 
 
 if __name__ == "__main__":

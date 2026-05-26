@@ -6,10 +6,12 @@ import ast
 import math
 import re
 from dataclasses import dataclass
+from datetime import timedelta
 
 from lineage_evo.config import QlibConfig
 from lineage_evo.factor.dsl import DEFAULT_FACTOR_DSL
 from lineage_evo.factor.expression import FactorExpression
+from lineage_evo.qlib_warnings import suppress_qlib_all_nan_slice_warning
 from lineage_evo.validation import ValidationResult
 
 
@@ -171,10 +173,17 @@ class QlibExpressionNormalizer:
 class QlibExpressionValidator:
     """Static checks plus an optional small-window Qlib execution check."""
 
-    def __init__(self, config: QlibConfig | None = None, max_length: int = 40, execute_check: bool = True) -> None:
+    def __init__(
+        self,
+        config: QlibConfig | None = None,
+        max_length: int = 50,
+        execute_check: bool = True,
+        execution_check_window_days: int = 120,
+    ) -> None:
         self.config = config or QlibConfig.from_env()
         self.max_length = max_length
         self.execute_check = execute_check
+        self.execution_check_window_days = execution_check_window_days
         self.normalizer = QlibExpressionNormalizer()
         self._qlib_initialized = False
         self._validation_cache: dict[str, ValidationResult] = {}
@@ -198,7 +207,14 @@ class QlibExpressionValidator:
             self._ensure_qlib()
             from qlib.data import D
 
-            data = D.features(D.instruments(self.config.market), [qlib_expr], start_time=self.config.train_start, end_time=self.config.train_start)
+            start_time, end_time = self._execution_check_window()
+            with suppress_qlib_all_nan_slice_warning():
+                data = D.features(
+                    D.instruments(self.config.market),
+                    [qlib_expr],
+                    start_time=start_time,
+                    end_time=end_time,
+                )
             series = data.iloc[:, 0].dropna()
         except Exception as exc:
             result = ValidationResult(False, [f"qlib execution error: {exc}"])
@@ -219,6 +235,14 @@ class QlibExpressionValidator:
         result = ValidationResult(True, [])
         self._validation_cache[qlib_expr] = result
         return result
+
+    def _execution_check_window(self) -> tuple[str, str]:
+        import pandas as pd
+
+        start = pd.Timestamp(self.config.train_start)
+        train_end = pd.Timestamp(self.config.train_end)
+        end = min(start + timedelta(days=self.execution_check_window_days), train_end)
+        return start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d")
 
     def _ensure_qlib(self) -> None:
         if self._qlib_initialized:

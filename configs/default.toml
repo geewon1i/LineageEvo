@@ -5,12 +5,12 @@ market = "csi500"
 benchmark = "SH000905"
 
 [time_split]
-train_start = "2018-01-02"
-train_end = "2018-06-30"
-valid_start = "2018-07-01"
-valid_end = "2018-12-31"
-test_start = "2019-01-01"
-test_end = "2019-12-31"
+train_start = "2015-01-01"
+train_end = "2020-12-31"
+valid_start = "2021-01-01"
+valid_end = "2022-04-30"
+test_start = "2022-05-01"
+test_end = "2026-04-30"
 
 [evaluation]
 label_expression = "Ref($close, -2) / Ref($close, -1) - 1"
@@ -20,11 +20,13 @@ ic_method = "spearman"
 seed_count = 10
 target_valid_evaluations = 200
 active_pool_size = 50
-factor_length_limit = 40
+factor_prompt_length_limit = 40
+factor_length_limit = 50
 mutation_per_generation = 3
 crossover_per_generation = 2
 max_attempts_per_operator_slot = 5
 max_seed_generation_attempts = 50
+max_runtime_seconds = 28800
 parent_train_icir_weight = 0.7
 parent_validation_icir_weight = 0.3
 parent_gap_penalty_weight = 0.2
@@ -32,7 +34,7 @@ parent_gap_penalty_weight = 0.2
 [llm]
 candidate_provider = "openai-compatible"
 prior_provider = "openai-compatible"
-max_tokens = 4000
+max_tokens = 8000
 temperature = 0.7
 
 [selection]
@@ -45,3 +47,12 @@ account = 100000000
 topk = 50
 n_drop = 5
 risk_degree = 0.95
+
+[prior_update]
+improvement_abs_floor = 0.02
+improvement_ratio = 0.20
+degradation_abs_floor = 0.05
+degradation_ratio = 0.30
+trend_window = 5
+trend_alpha = 0.3333333333333333
+trend_epsilon = 0.01

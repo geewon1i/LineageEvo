@@ -22,6 +22,7 @@ class CandidateRequest:
     parent_ids: list[str] = field(default_factory=list)
     parent_metrics: list[dict[str, object]] = field(default_factory=list)
     recent_invalid_or_failed_patterns: list[str] = field(default_factory=list)
+    duplicate_feedback: list[dict[str, object]] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -51,14 +52,27 @@ class CandidatePromptBuilder:
         user_payload = {
             "operator": request.operator,
             "parents": [expr.normalized for expr in request.parent_expressions],
-            "prior_context": request.fused_prior_context.prompt_context,
+            "prior_context": self._prompt_prior_context(request.fused_prior_context),
             "allowed_expression_dsl": self.dsl.as_prompt_context(),
             "constraints": request.constraints,
             "parent_ids": request.parent_ids,
             "parent_metrics": request.parent_metrics,
             "recent_invalid_or_failed_patterns": request.recent_invalid_or_failed_patterns,
+            "duplicate_feedback": request.duplicate_feedback,
         }
         return CANDIDATE_SYSTEM_PROMPT, build_candidate_prompt(user_payload)
+
+    @staticmethod
+    def _prompt_prior_context(fused_context: FusedPriorContext) -> dict[str, object]:
+        context = fused_context.prompt_context
+        return {
+            "mode": context.get("mode"),
+            "operator": context.get("operator"),
+            "rendered_priors": context.get("rendered_priors", {}),
+            "fusion_decision": context.get("fusion_decision", {}),
+            "mutation_control_state": context.get("mutation_control_state", {}),
+            "prior_updates_enabled": fused_context.prior_updates_enabled,
+        }
 
 
 class LLMCandidateGenerator:
@@ -107,8 +121,9 @@ def parse_candidate_output(raw_output: str) -> CandidateParseResult:
     # Only parse LLM output shape here; expression validity is checked later.
     if not raw_output or not raw_output.strip():
         return CandidateParseResult(False, failure_reason="empty output")
+    candidate_json = _extract_json_object(_strip_markdown_fence(raw_output.strip()))
     try:
-        payload = json.loads(raw_output)
+        payload = json.loads(candidate_json)
     except json.JSONDecodeError:
         return CandidateParseResult(False, failure_reason="non-json output")
     if not isinstance(payload, dict):
@@ -119,3 +134,41 @@ def parse_candidate_output(raw_output: str) -> CandidateParseResult:
     if not isinstance(factor, str) or not factor.strip():
         return CandidateParseResult(False, failure_reason="missing factor field")
     return CandidateParseResult(True, factor=FactorExpression(factor.strip()), rationale=str(payload.get("rationale", "")))
+
+
+def _strip_markdown_fence(text: str) -> str:
+    if not text.startswith("```"):
+        return text
+    lines = text.splitlines()
+    if len(lines) >= 2 and lines[-1].strip().startswith("```"):
+        return "\n".join(lines[1:-1]).strip()
+    return text
+
+
+def _extract_json_object(text: str) -> str:
+    start = text.find("{")
+    if start < 0:
+        return text
+
+    depth = 0
+    in_string = False
+    escaped = False
+    for index, char in enumerate(text[start:], start=start):
+        if in_string:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                in_string = False
+            continue
+
+        if char == '"':
+            in_string = True
+        elif char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start : index + 1]
+    return text

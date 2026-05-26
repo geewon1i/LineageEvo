@@ -3,6 +3,13 @@
 from lineage_evo.prior_rewrite.manager import PriorManager, PriorManagerConfig
 from lineage_evo.prior_rewrite.mock import MockPriorRewriter
 from lineage_evo.prior_rewrite.rewriter import LLMPriorRewriter
+from lineage_evo.prior_rewrite.trigger import (
+    LineageControlStateController,
+    LineageControlStateDecision,
+    MutationStrengthController,
+    PriorUpdateTrigger,
+    PriorUpdateTriggerDecision,
+)
 from lineage_evo.prior_rewrite.types import (
     LLMRewriteResponse,
     PriorRewriteInput,
@@ -19,4 +26,9 @@ __all__ = [
     "PriorRewriteInput",
     "PriorRewriteResult",
     "PriorTarget",
+    "PriorUpdateTrigger",
+    "PriorUpdateTriggerDecision",
+    "LineageControlStateController",
+    "LineageControlStateDecision",
+    "MutationStrengthController",
 ]

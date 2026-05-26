@@ -34,12 +34,39 @@ class EvolutionEdge:
     expression_diff: ExpressionDiff | None = None
 
 
+@dataclass(frozen=True)
+class LineageBaseState:
+    """论文中的 B_L^t：只描述 lineage 本身，不承担算子级指导。"""
+
+    lineage_id: str
+    representative_factor_id: str | None
+    representative_expression: str | None
+    best_factor_id: str | None
+    best_validation_icir: float | None
+    age: int
+    size: int
+    active_size: int
+
+    def as_dict(self) -> dict[str, object]:
+        return {
+            "lineage_id": self.lineage_id,
+            "representative_factor_id": self.representative_factor_id,
+            "representative_expression": self.representative_expression,
+            "best_factor_id": self.best_factor_id,
+            "best_validation_icir": self.best_validation_icir,
+            "age": self.age,
+            "size": self.size,
+            "active_size": self.active_size,
+        }
+
+
 @dataclass
 class LineageDAG:
     active_pool_size: int = 50
     nodes: dict[str, FactorNode] = field(default_factory=dict)
     edges: list[EvolutionEdge] = field(default_factory=list)
     active_ids: list[str] = field(default_factory=list)
+    lineage_states: dict[str, LineageBaseState] = field(default_factory=dict)
 
     def add_seed(self, expression: FactorExpression, evaluation: EvaluationResult, generation: int = 0) -> FactorNode:
         factor_id = self._new_id()
@@ -52,6 +79,7 @@ class LineageDAG:
         )
         self.nodes[factor_id] = node
         self.active_ids.append(factor_id)
+        self._refresh_lineage_state(node.lineage_id)
         return node
 
     def add_mutation_child(
@@ -75,6 +103,7 @@ class LineageDAG:
         self.edges.append(EvolutionEdge(parent_id, child_id, OperatorType.MUTATION, "primary", expression_diff))
         self.active_ids.append(child_id)
         self.prune_active_pool()
+        self._refresh_all_lineage_states()
         return child
 
     def add_crossover_child(
@@ -102,6 +131,7 @@ class LineageDAG:
         self.edges.append(EvolutionEdge(secondary.factor_id, child_id, OperatorType.CROSSOVER, "secondary", expression_diff))
         self.active_ids.append(child_id)
         self.prune_active_pool()
+        self._refresh_all_lineage_states()
         return child
 
     def prune_active_pool(self) -> list[str]:
@@ -124,7 +154,42 @@ class LineageDAG:
                 is_active=False,
             )
             removed.append(worst_id)
+        if removed:
+            self._refresh_all_lineage_states()
         return removed
+
+    def lineage_state(self, lineage_id: str) -> LineageBaseState:
+        if lineage_id not in self.lineage_states:
+            self._refresh_lineage_state(lineage_id)
+        return self.lineage_states[lineage_id]
+
+    def lineage_state_dict(self, lineage_id: str) -> dict[str, object]:
+        return self.lineage_state(lineage_id).as_dict()
+
+    def _refresh_all_lineage_states(self) -> None:
+        for lineage_id in {node.lineage_id for node in self.nodes.values()}:
+            self._refresh_lineage_state(lineage_id)
+
+    def _refresh_lineage_state(self, lineage_id: str) -> None:
+        nodes = [node for node in self.nodes.values() if node.lineage_id == lineage_id]
+        if not nodes:
+            self.lineage_states.pop(lineage_id, None)
+            return
+
+        representative = min(nodes, key=lambda node: (node.generation, node.factor_id))
+        evaluated = [node for node in nodes if node.evaluation is not None]
+        best = max(evaluated, key=lambda node: node.evaluation.validation_icir) if evaluated else None
+        active_size = sum(1 for node in nodes if node.is_active)
+        self.lineage_states[lineage_id] = LineageBaseState(
+            lineage_id=lineage_id,
+            representative_factor_id=representative.factor_id,
+            representative_expression=representative.expression.raw,
+            best_factor_id=best.factor_id if best else None,
+            best_validation_icir=best.evaluation.validation_icir if best and best.evaluation else None,
+            age=max(node.generation for node in nodes),
+            size=len(nodes),
+            active_size=active_size,
+        )
 
     @staticmethod
     def _new_id() -> str:
@@ -137,4 +202,3 @@ class LineageDAG:
         if b_score > a_score:
             return parent_b, parent_a
         return parent_a, parent_b
-

@@ -9,6 +9,7 @@ The framework evolves quantitative factor expressions with an LLM while keeping 
 - Qlib evaluates IC and ICIR on train/validation splits;
 - a lineage DAG records mutation and crossover ancestry;
 - an LLM-assisted prior rewriter maintains structured lineage/global priors;
+- structured priors are rendered into compact experience text before candidate generation;
 - final selection evaluates top validation factors on the test split and can run a Qlib backtest.
 
 ## Repository Status
@@ -94,6 +95,12 @@ Useful smaller real run:
 python -m lineage_evo.cli qlib-smoke-run --config configs/default.toml --seed-count 3 --target-valid 5 --final-top-k 3 --print-llm-io --verbose
 ```
 
+To run a specific ablation mode:
+
+```powershell
+python -m lineage_evo.cli qlib-smoke-run --ablation-mode lineage_only --target-valid 20
+```
+
 The command name `qlib-smoke-run` is kept for compatibility, but with the default config it is the main real-data experiment entry.
 
 To force mock LLM components while still using Qlib evaluation:
@@ -126,7 +133,7 @@ python -m lineage_evo.cli llm-dry-run --kind prior-rewrite --llm openai-compatib
 Each run creates a unique directory under `runs/`. The key files are:
 
 - `config_snapshot.json`: merged configuration and component names;
-- `candidate_log.jsonl`: raw LLM candidate output and generation/validation/evaluation status;
+- `candidate_log.jsonl`: raw LLM candidate output, generation/validation/evaluation status, structured prior snapshots, rendered experience text, and local-global fusion decision;
 - `prior_rewrite_log.jsonl`: old prior, raw rewritten prior, accepted prior, schema status, fallback status;
 - `dag_events.jsonl`: mutation and crossover DAG events;
 - `summary_results.csv`: generated/evaluated/failure counters;
@@ -150,6 +157,7 @@ The test suite keeps real network calls out of automated tests. Mock components 
 ## Notes
 
 - LLMs do not perform syntax validation, numerical validation, IC computation, or backtesting.
+- Candidate generation uses rendered experience text; prior rewriting uses structured JSON only.
 - Invalid candidates are logged but do not enter the DAG and do not trigger prior rewriting.
 - Crossover children keep two parent edges but inherit only the primary lineage, chosen by higher validation ICIR.
 - The current expression interface follows an AlphaPROBE-style operator DSL and is deterministically adapted to Qlib expressions.

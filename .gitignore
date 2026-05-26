@@ -20,3 +20,7 @@ runs/
 # Local data should be configured through .env/configs, not committed.
 qlib_data/
 data/
+
+# Local paper drafts referenced during development.
+LineageEvo.pdf
+LineageEvo.md

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import math
 from dataclasses import dataclass
 from typing import Any
@@ -10,6 +11,7 @@ from lineage_evo.config import BacktestConfig, QlibConfig, SelectionConfig
 from lineage_evo.factor import QlibExpressionNormalizer
 from lineage_evo.lineage import FactorNode, LineageDAG
 from lineage_evo.recording import SearchRecorder
+from lineage_evo.qlib_warnings import suppress_qlib_all_nan_slice_warning
 
 
 @dataclass(frozen=True)
@@ -46,6 +48,7 @@ class Finalizer:
         if self.qlib_config is not None:
             test_rows = self._test_ic_rows(selected)
             self.recorder.write_test_ic_results(test_rows)
+            self.recorder.write_composite_test_ic_results(self._composite_test_ic_rows(selected))
             if self.backtest_config.enabled and selected:
                 try:
                     self._run_backtest(selected)
@@ -57,8 +60,18 @@ class Finalizer:
 
     def select(self, dag: LineageDAG) -> list[FactorNode]:
         active = [dag.nodes[node_id] for node_id in dag.active_ids if dag.nodes[node_id].is_active and dag.nodes[node_id].evaluation is not None]
-        ranked = sorted(active, key=lambda node: node.evaluation.validation_icir, reverse=True)
-        return ranked[: self.selection_config.final_top_k]
+        ranked = sorted(active, key=lambda node: abs(node.evaluation.validation_icir), reverse=True)
+        selected: list[FactorNode] = []
+        seen_normalized: set[str] = set()
+        for node in ranked:
+            key = self._normalized_selection_key(node)
+            if key in seen_normalized:
+                continue
+            seen_normalized.add(key)
+            selected.append(node)
+            if len(selected) >= self.selection_config.final_top_k:
+                break
+        return selected
 
     def _selected_rows(self, selected: list[FactorNode]) -> list[dict[str, Any]]:
         rows = []
@@ -71,13 +84,56 @@ class Finalizer:
                     "lineage_id": node.lineage_id,
                     "generation": node.generation,
                     "expression": node.expression.raw,
+                    "normalized_expression": self._normalized_selection_key(node),
                     "train_ic": evaluation.train_ic,
                     "train_icir": evaluation.train_icir,
-                    "validation_ic": evaluation.validation_ic,
-                    "validation_icir": evaluation.validation_icir,
+                    "raw_validation_ic": evaluation.validation_ic,
+                    "raw_validation_icir": evaluation.validation_icir,
+                    "selection_score": abs(evaluation.validation_icir),
+                    "orientation": self._orientation(node),
                 }
             )
         return rows
+
+    def _normalized_selection_key(self, node: FactorNode) -> str:
+        try:
+            return self.normalizer.normalize(node.expression)
+        except Exception:
+            return f"raw:{node.expression.raw}"
+
+    def _composite_test_ic_rows(self, selected: list[FactorNode]) -> list[dict[str, Any]]:
+        if not selected:
+            return []
+        try:
+            signal = self._composite_signal(selected)
+            label = self._load_label()
+            data = signal.to_frame("factor").join(label, how="inner").dropna()
+            if data.empty:
+                raise ValueError("composite test factor/label data is empty")
+            test_ic, test_icir = self._ic_metrics(data)
+            return [
+                {
+                    "signal_name": "oriented_equal_weight_top_k",
+                    "selected_count": len(selected),
+                    "factor_ids": json.dumps([node.factor_id for node in selected], ensure_ascii=False),
+                    "test_ic": test_ic,
+                    "test_icir": test_icir,
+                    "status": "ok",
+                    "failure_reason": None,
+                }
+            ]
+        except Exception as exc:
+            return [
+                {
+                    "signal_name": "oriented_equal_weight_top_k",
+                    "selected_count": len(selected),
+                    "factor_ids": json.dumps([node.factor_id for node in selected], ensure_ascii=False),
+                    "test_ic": None,
+                    "test_icir": None,
+                    "status": "failed",
+                    "failure_reason": f"{type(exc).__name__}: {exc}",
+                }
+            ]
 
     def _test_ic_rows(self, selected: list[FactorNode]) -> list[dict[str, Any]]:
         rows = []
@@ -85,6 +141,7 @@ class Finalizer:
             try:
                 factor = self.normalizer.normalize(node.expression)
                 data = self._load_factor_label(factor)
+                data["factor"] = data["factor"] * self._orientation(node)
                 test_ic, test_icir = self._ic_metrics(data)
                 rows.append(
                     {
@@ -152,15 +209,20 @@ class Finalizer:
         import pandas as pd
         from qlib.data import D
 
-        fields = [self.normalizer.normalize(node.expression) for node in selected]
-        data = D.features(D.instruments(self.qlib_config.market), fields, start_time=self.qlib_config.test_start, end_time=self.qlib_config.test_end)
+        fields = list(dict.fromkeys(self.normalizer.normalize(node.expression) for node in selected))
+        with suppress_qlib_all_nan_slice_warning():
+            data = D.features(D.instruments(self.qlib_config.market), fields, start_time=self.qlib_config.test_start, end_time=self.qlib_config.test_end)
         data = data.replace([float("inf"), float("-inf")], float("nan"))
+        oriented = pd.DataFrame(index=data.index)
+        for node in selected:
+            qlib_expr = self.normalizer.normalize(node.expression)
+            oriented[node.factor_id] = data[qlib_expr] * self._orientation(node)
 
         def zscore(frame):
             std = frame.std(ddof=0)
             return (frame - frame.mean()) / std.replace(0, float("nan"))
 
-        standardized = data.groupby(level="datetime", group_keys=False).apply(zscore)
+        standardized = oriented.groupby(level="datetime", group_keys=False).apply(zscore)
         signal = standardized.mean(axis=1).dropna()
         if signal.empty:
             raise ValueError("composite signal is empty")
@@ -171,11 +233,29 @@ class Finalizer:
         from qlib.data import D
 
         fields = [qlib_expr, self.qlib_config.label_expression]
-        data = D.features(D.instruments(self.qlib_config.market), fields, start_time=self.qlib_config.test_start, end_time=self.qlib_config.test_end)
+        with suppress_qlib_all_nan_slice_warning():
+            data = D.features(D.instruments(self.qlib_config.market), fields, start_time=self.qlib_config.test_start, end_time=self.qlib_config.test_end)
         data = data.rename(columns={qlib_expr: "factor", self.qlib_config.label_expression: "label"})
         data = data.sort_index().replace([float("inf"), float("-inf")], float("nan")).dropna()
         if data.empty:
             raise ValueError("test factor/label data is empty")
+        return data
+
+    def _load_label(self):
+        self._ensure_qlib()
+        from qlib.data import D
+
+        with suppress_qlib_all_nan_slice_warning():
+            data = D.features(
+                D.instruments(self.qlib_config.market),
+                [self.qlib_config.label_expression],
+                start_time=self.qlib_config.test_start,
+                end_time=self.qlib_config.test_end,
+            )
+        data = data.rename(columns={self.qlib_config.label_expression: "label"})
+        data = data.sort_index().replace([float("inf"), float("-inf")], float("nan")).dropna()
+        if data.empty:
+            raise ValueError("test label data is empty")
         return data
 
     def _ic_metrics(self, data) -> tuple[float, float]:
@@ -236,3 +316,8 @@ class Finalizer:
         drawdown = wealth / wealth.cummax() - 1
         return float(drawdown.min())
 
+    @staticmethod
+    def _orientation(node: FactorNode) -> int:
+        if node.evaluation is not None and node.evaluation.validation_icir < 0:
+            return -1
+        return 1

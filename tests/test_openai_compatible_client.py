@@ -49,3 +49,34 @@ def test_openai_compatible_client_requires_key_and_model(monkeypatch):
     monkeypatch.delenv("LINEAGEEVO_LLM_MODEL", raising=False)
     with pytest.raises(ValueError, match="LINEAGEEVO_LLM_API_KEY"):
         OpenAICompatibleLLMClient(LLMConfig(api_key=None, model=None))
+
+
+def test_openai_compatible_client_retries_read_timeout(monkeypatch):
+    calls = {"count": 0}
+
+    class TimeoutThenSuccessResponse(FakeHTTPResponse):
+        def read(self):
+            calls["count"] += 1
+            if calls["count"] == 1:
+                raise TimeoutError("The read operation timed out")
+            return super().read()
+
+    def fake_urlopen(req, timeout):
+        return TimeoutThenSuccessResponse({"choices": [{"message": {"content": "ok"}}]})
+
+    monkeypatch.setattr("lineage_evo.llm.openai_compatible.request.urlopen", fake_urlopen)
+    client = OpenAICompatibleLLMClient(
+        LLMConfig(
+            base_url="https://example.test/v1",
+            api_key="key",
+            model="model",
+            timeout_seconds=3,
+            max_retry=2,
+            retry_wait_seconds=0,
+        )
+    )
+
+    response = client.complete(system_prompt="sys", user_prompt="user")
+
+    assert response.content == "ok"
+    assert calls["count"] == 2
