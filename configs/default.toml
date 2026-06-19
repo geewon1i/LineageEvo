@@ -20,6 +20,10 @@ ic_method = "spearman"
 seed_count = 10
 target_valid_evaluations = 200
 active_pool_size = 50
+elite_archive_size = 20
+max_active_lineage_ratio = 0.40
+min_active_lineages_before_cap = 2
+lineage_concentration_weight = 0.20
 factor_prompt_length_limit = 40
 factor_length_limit = 50
 mutation_per_generation = 3
@@ -27,8 +31,8 @@ crossover_per_generation = 2
 max_attempts_per_operator_slot = 5
 max_seed_generation_attempts = 50
 max_runtime_seconds = 28800
-parent_train_icir_weight = 0.7
-parent_validation_icir_weight = 0.3
+parent_train_ic_weight = 0.7
+parent_validation_ic_weight = 0.3
 parent_gap_penalty_weight = 0.2
 
 [llm]
@@ -38,8 +42,8 @@ max_tokens = 8000
 temperature = 0.7
 
 [selection]
-final_top_k = 5
-selection_metric = "validation_icir"
+final_top_k = 1
+selection_metric = "validation_ic"
 
 [backtest]
 enabled = true
@@ -49,10 +53,10 @@ n_drop = 5
 risk_degree = 0.95
 
 [prior_update]
-improvement_abs_floor = 0.02
-improvement_ratio = 0.20
-degradation_abs_floor = 0.05
-degradation_ratio = 0.30
+improvement_abs_floor = 0.003
+improvement_ratio = 0.30
+degradation_abs_floor = 0.008
+degradation_ratio = 0.45
 trend_window = 5
 trend_alpha = 0.3333333333333333
-trend_epsilon = 0.01
+trend_epsilon = 0.001

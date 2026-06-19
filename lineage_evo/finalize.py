@@ -36,6 +36,7 @@ class Finalizer:
         self.recorder = recorder
         self.normalizer = QlibExpressionNormalizer()
         self._qlib_initialized = False
+        self._last_selection_source = "unknown"
 
     def run(self, dag: LineageDAG) -> FinalizationResult:
         warnings: list[str] = []
@@ -59,8 +60,10 @@ class Finalizer:
         return FinalizationResult(selected_count=len(selected), backtest_ran=backtest_ran, warnings=warnings)
 
     def select(self, dag: LineageDAG) -> list[FactorNode]:
-        active = [dag.nodes[node_id] for node_id in dag.active_ids if dag.nodes[node_id].is_active and dag.nodes[node_id].evaluation is not None]
-        ranked = sorted(active, key=lambda node: abs(node.evaluation.validation_icir), reverse=True)
+        self._last_selection_source = "elite_archive" if dag.elite_ids else "active_pool_fallback"
+        source_ids = dag.elite_ids or dag.active_ids
+        candidates = [dag.nodes[node_id] for node_id in source_ids if dag.nodes[node_id].evaluation is not None]
+        ranked = sorted(candidates, key=lambda node: abs(node.evaluation.validation_ic), reverse=True)
         selected: list[FactorNode] = []
         seen_normalized: set[str] = set()
         for node in ranked:
@@ -83,17 +86,19 @@ class Finalizer:
                     "factor_id": node.factor_id,
                     "lineage_id": node.lineage_id,
                     "generation": node.generation,
+                    "selection_source": self._last_selection_source,
                     "expression": node.expression.raw,
                     "normalized_expression": self._normalized_selection_key(node),
                     "train_ic": evaluation.train_ic,
                     "train_icir": evaluation.train_icir,
                     "raw_validation_ic": evaluation.validation_ic,
                     "raw_validation_icir": evaluation.validation_icir,
-                    "selection_score": abs(evaluation.validation_icir),
+                    "selection_score": abs(evaluation.validation_ic),
                     "orientation": self._orientation(node),
                 }
             )
         return rows
+
 
     def _normalized_selection_key(self, node: FactorNode) -> str:
         try:
@@ -318,6 +323,6 @@ class Finalizer:
 
     @staticmethod
     def _orientation(node: FactorNode) -> int:
-        if node.evaluation is not None and node.evaluation.validation_icir < 0:
+        if node.evaluation is not None and node.evaluation.validation_ic < 0:
             return -1
         return 1

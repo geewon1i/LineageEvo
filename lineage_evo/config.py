@@ -30,6 +30,10 @@ def _env_bool(name: str, default: bool) -> bool:
 @dataclass(frozen=True)
 class SearchConfig:
     active_pool_size: int = 50
+    elite_archive_size: int = 20
+    max_active_lineage_ratio: float = 0.40
+    min_active_lineages_before_cap: int = 2
+    lineage_concentration_weight: float = 0.20
     factor_prompt_length_limit: int = 40
     factor_length_limit: int = 50
     target_valid_evaluations: int = 200
@@ -43,8 +47,8 @@ class SearchConfig:
     use_local: bool = True
     seed_count: int = 10
     max_seed_generation_attempts: int = 50
-    parent_train_icir_weight: float = 0.7
-    parent_validation_icir_weight: float = 0.3
+    parent_train_ic_weight: float = 0.7
+    parent_validation_ic_weight: float = 0.3
     parent_gap_penalty_weight: float = 0.2
     parent_weight_epsilon: float = 1e-6
 
@@ -61,18 +65,18 @@ class SearchConfig:
 class PriorRewriteConfig:
     top_k_patterns: int = 5
     max_text_length: int = 240
-    strong_validation_delta: float = 0.05
+    strong_validation_delta: float = 0.005
 
 
 @dataclass(frozen=True)
 class PriorUpdateConfig:
-    improvement_abs_floor: float = 0.02
-    improvement_ratio: float = 0.20
-    degradation_abs_floor: float = 0.05
-    degradation_ratio: float = 0.30
+    improvement_abs_floor: float = 0.003
+    improvement_ratio: float = 0.30
+    degradation_abs_floor: float = 0.008
+    degradation_ratio: float = 0.45
     trend_window: int = 5
     trend_alpha: float = 1.0 / 3.0
-    trend_epsilon: float = 0.01
+    trend_epsilon: float = 0.001
 
 
 @dataclass(frozen=True)
@@ -139,8 +143,8 @@ class QlibConfig:
 
 @dataclass(frozen=True)
 class SelectionConfig:
-    final_top_k: int = 5
-    selection_metric: str = "validation_icir"
+    final_top_k: int = 1
+    selection_metric: str = "validation_ic"
 
 
 @dataclass(frozen=True)
@@ -194,6 +198,16 @@ class ExperimentConfig:
             search=SearchConfig(
                 target_valid_evaluations=search.get("target_valid_evaluations", SearchConfig.target_valid_evaluations),
                 active_pool_size=search.get("active_pool_size", SearchConfig.active_pool_size),
+                elite_archive_size=search.get("elite_archive_size", SearchConfig.elite_archive_size),
+                max_active_lineage_ratio=search.get("max_active_lineage_ratio", SearchConfig.max_active_lineage_ratio),
+                min_active_lineages_before_cap=search.get(
+                    "min_active_lineages_before_cap",
+                    SearchConfig.min_active_lineages_before_cap,
+                ),
+                lineage_concentration_weight=search.get(
+                    "lineage_concentration_weight",
+                    SearchConfig.lineage_concentration_weight,
+                ),
                 factor_prompt_length_limit=search.get("factor_prompt_length_limit", SearchConfig.factor_prompt_length_limit),
                 factor_length_limit=search.get("factor_length_limit", SearchConfig.factor_length_limit),
                 mutation_per_generation=search.get("mutation_per_generation", SearchConfig.mutation_per_generation),
@@ -201,8 +215,14 @@ class ExperimentConfig:
                 max_attempts_per_operator_slot=search.get("max_attempts_per_operator_slot", SearchConfig.max_attempts_per_operator_slot),
                 seed_count=search.get("seed_count", SearchConfig.seed_count),
                 max_seed_generation_attempts=search.get("max_seed_generation_attempts", SearchConfig.max_seed_generation_attempts),
-                parent_train_icir_weight=search.get("parent_train_icir_weight", SearchConfig.parent_train_icir_weight),
-                parent_validation_icir_weight=search.get("parent_validation_icir_weight", SearchConfig.parent_validation_icir_weight),
+                parent_train_ic_weight=search.get(
+                    "parent_train_ic_weight",
+                    search.get("parent_train_icir_weight", SearchConfig.parent_train_ic_weight),
+                ),
+                parent_validation_ic_weight=search.get(
+                    "parent_validation_ic_weight",
+                    search.get("parent_validation_icir_weight", SearchConfig.parent_validation_ic_weight),
+                ),
                 parent_gap_penalty_weight=search.get("parent_gap_penalty_weight", SearchConfig.parent_gap_penalty_weight),
             ),
             qlib=qlib,

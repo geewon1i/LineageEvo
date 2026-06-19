@@ -6,7 +6,7 @@ The framework evolves quantitative factor expressions with an LLM while keeping 
 
 - the LLM generates one candidate factor at a time;
 - deterministic code validates the expression DSL and adapts it to Qlib;
-- Qlib evaluates IC and ICIR on train/validation splits;
+- Qlib evaluates IC and ICIR on train/validation splits, with IC as the main optimization metric;
 - a lineage DAG records mutation and crossover ancestry;
 - an LLM-assisted prior rewriter maintains structured lineage/global priors;
 - structured priors are rendered into compact experience text before candidate generation;
@@ -75,9 +75,9 @@ By default, the real experiment entry uses:
 
 - market: `csi500`
 - benchmark: `SH000905`
-- train: 2018-01-02 to 2018-06-30
-- validation: 2018-07-01 to 2018-12-31
-- test: 2019-01-01 to 2019-12-31
+- train: 2015-01-01 to 2020-12-31
+- validation: 2021-01-01 to 2022-04-30
+- test: 2022-05-01 to 2026-04-30
 - candidate LLM: `openai-compatible`
 - prior rewrite LLM: `openai-compatible`
 
@@ -138,8 +138,9 @@ Each run creates a unique directory under `runs/`. The key files are:
 - `dag_events.jsonl`: mutation and crossover DAG events;
 - `summary_results.csv`: generated/evaluated/failure counters;
 - `final_factor_pool.csv`: active pool at the end of search;
-- `selected_factors.csv`: top validation factors selected for test;
-- `test_ic_results.csv`: test IC/ICIR for selected factors;
+- `selected_factors.csv`: top factors selected by absolute validation IC for test;
+- `test_ic_results.csv`: oriented test IC/ICIR for selected factors;
+- `composite_test_ic_results.csv`: oriented Top-K composite test IC/ICIR, with test IC as the main paper metric;
 - `backtest_summary.csv` and `backtest_daily_report.csv`: Qlib backtest results when enabled.
 
 `runs/` is ignored by Git.
@@ -159,5 +160,6 @@ The test suite keeps real network calls out of automated tests. Mock components 
 - LLMs do not perform syntax validation, numerical validation, IC computation, or backtesting.
 - Candidate generation uses rendered experience text; prior rewriting uses structured JSON only.
 - Invalid candidates are logged but do not enter the DAG and do not trigger prior rewriting.
-- Crossover children keep two parent edges but inherit only the primary lineage, chosen by higher validation ICIR.
+- LineageEvo optimizes IC-oriented predictive strength; ICIR is retained for stability analysis.
+- Crossover children keep two parent edges but inherit only the primary lineage, chosen by higher absolute validation IC.
 - The current expression interface follows an AlphaPROBE-style operator DSL and is deterministically adapted to Qlib expressions.

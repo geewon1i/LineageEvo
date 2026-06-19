@@ -10,7 +10,7 @@ LineageEvo is organized around a deterministic evolutionary search loop with two
 4. Apply the selected ablation mode, then fuse lineage/global priors with an explicit local-global weight.
 5. Ask the candidate LLM for exactly one factor expression.
 6. Validate the expression deterministically.
-7. Evaluate train/validation IC and ICIR with Qlib.
+7. Evaluate train/validation IC and ICIR with Qlib; use IC as the main search metric.
 8. Add valid children to the lineage DAG.
 9. Rewrite lineage/global priors with a constrained LLM prior rewriter.
 10. Finalize by selecting top validation factors, testing them, and optionally running Qlib backtest.
@@ -24,13 +24,13 @@ Invalid candidates stop at validation/evaluation logging. They are not added to 
 - `lineage_evo.validation`: deterministic validation result types and validation boundaries.
 - `lineage_evo.evaluation`: evaluator protocol, mock evaluator, Qlib evaluator for IC/ICIR.
 - `lineage_evo.lineage`: factor nodes, evolutionary edges, lineage DAG, active pool pruning.
-- `lineage_evo.operators`: parent selection and operator scheduling.
+- `lineage_evo.operators`: IC-based parent selection and operator scheduling.
 - `lineage_evo.priors`: strict Pydantic schemas plus renderers that turn structured priors into compact experience text.
 - `lineage_evo.ablation`: experiment-mode selection for baselines such as lineage-only, global-only, shuffled prior, and raw ancestral trace.
 - `lineage_evo.prior_fusion`: Method section 4.7 local-global gating that exposes lambda and 1-lambda to candidate prompts.
 - `lineage_evo.prior_rewrite`: LLM prior rewriter, deterministic prior manager, fallback and pruning.
 - `lineage_evo.recording`: JSONL/CSV recorders, console reporting, run directory creation.
-- `lineage_evo.finalize`: final factor selection, test IC/ICIR, and optional Qlib backtest.
+- `lineage_evo.finalize`: absolute-validation-IC final factor selection, oriented test IC/ICIR, and optional Qlib backtest.
 - `lineage_evo.experiments`: runner assembly for mock and Qlib-backed experiments.
 - `lineage_evo.llm`: provider-neutral LLM protocol and OpenAI-compatible chat-completions client.
 
@@ -43,7 +43,7 @@ The following remain deterministic:
 - expression parsing and validation;
 - factor length, feature, operator, and constant checks;
 - Qlib executability checks;
-- IC and ICIR computation;
+- IC and ICIR computation, with IC used for search decisions and ICIR kept as auxiliary stability output;
 - DAG updates;
 - final test and backtest;
 - prior schema validation, pruning, confidence constraints, and fallback.

@@ -79,8 +79,10 @@ class SearchRecorder:
                     "lineage_id": node.lineage_id,
                     "generation": node.generation,
                     "expression": node.expression.raw,
-                    "validation_icir": node.evaluation.validation_icir if node.evaluation else None,
+                    "train_ic": node.evaluation.train_ic if node.evaluation else None,
                     "train_icir": node.evaluation.train_icir if node.evaluation else None,
+                    "validation_ic": node.evaluation.validation_ic if node.evaluation else None,
+                    "validation_icir": node.evaluation.validation_icir if node.evaluation else None,
                 }
             )
         self._write_csv(self.final_pool_path, rows)

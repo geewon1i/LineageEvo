@@ -49,11 +49,11 @@ class PriorUpdateTrigger:
         if parent is None or child is None or delta is None:
             return self._decision(False, "minor_fluctuation", operator, generation)
 
-        delta_train_strength = abs(child.train_icir) - abs(parent.train_icir)
-        delta_validation_strength = abs(child.validation_icir) - abs(parent.validation_icir)
-        improvement_threshold = self._improvement_threshold(abs(parent.validation_icir))
-        degradation_threshold = self._degradation_threshold(abs(parent.validation_icir))
-        train_improvement_threshold = self._improvement_threshold(abs(parent.train_icir))
+        delta_train_strength = abs(child.train_ic) - abs(parent.train_ic)
+        delta_validation_strength = abs(child.validation_ic) - abs(parent.validation_ic)
+        improvement_threshold = self._improvement_threshold(abs(parent.validation_ic))
+        degradation_threshold = self._degradation_threshold(abs(parent.validation_ic))
+        train_improvement_threshold = self._improvement_threshold(abs(parent.train_ic))
 
         if delta_validation_strength >= improvement_threshold - self._EPSILON:
             reason = "significant_validation_improvement"
@@ -131,17 +131,17 @@ class LineageControlStateController:
         stats = lineage_statistics or {}
         trend_signal = float(stats.get("lineage_trend_signal", 0.0) or 0.0)
         trend_state = self._trend_state(trend_signal, str(stats.get("lineage_trend_state", "flat_or_slowing")))
-        gap = float(stats.get("train_validation_icir_gap", 0.0) or 0.0)
+        gap = float(stats.get("train_validation_ic_gap", stats.get("train_validation_icir_gap", 0.0)) or 0.0)
         bias_risk = str(prior_data.get("bias_risk", "low"))
         strength_deltas = stats.get("recent_validation_strength_deltas", [])
         has_history = isinstance(strength_deltas, list) and len(strength_deltas) > 0
         non_improving_count = self._non_improving_count(strength_deltas)
         stagnation = self._stagnation_state(trend_signal, non_improving_count, has_history)
 
-        if trend_state == "worsening" or stagnation != "not_stagnant" or bias_risk == "high" or gap >= 0.20:
+        if trend_state == "worsening" or stagnation != "not_stagnant" or bias_risk == "high" or gap >= 0.02:
             strength = "exploratory"
             reason = "worsening/stagnant or biased lineage"
-        elif trend_state == "improving" and bias_risk == "low" and gap < 0.10:
+        elif trend_state == "improving" and bias_risk == "low" and gap < 0.01:
             strength = "conservative"
             reason = "improving low-risk lineage"
         else:

@@ -67,7 +67,7 @@ def global_crossover_prior():
 
 def test_mutation_candidate_updates_lineage_and_global_priors():
     dag = LineageDAG()
-    seed = dag.add_seed(FactorExpression("close"), EvaluationResult(0, 0.1, 0, 0.1))
+    seed = dag.add_seed(FactorExpression("close"), EvaluationResult(0.01, 0.1, 0.01, 0.1))
     updated_lineage = {
         "successful_mutation_patterns": [
             {
@@ -112,7 +112,7 @@ def test_mutation_candidate_updates_lineage_and_global_priors():
 
 def test_minor_fluctuation_valid_child_skips_prior_rewrite():
     dag = LineageDAG()
-    seed = dag.add_seed(FactorExpression("close"), EvaluationResult(0, 0.1, 0, 0.1))
+    seed = dag.add_seed(FactorExpression("close"), EvaluationResult(0.01, 0.1, 0.010, 0.1))
     prior_rewriter = MockPriorRewriter()
     stores = PriorStores(
         mutation_by_lineage={seed.lineage_id: mutation_prior()},
@@ -124,7 +124,7 @@ def test_minor_fluctuation_valid_child_skips_prior_rewrite():
         run_id="run",
         dag=dag,
         validator=Validator({"close"}, {"rank"}),
-        evaluator=FixedEvaluator(EvaluationResult(0, 0.1, 0, 0.105)),
+        evaluator=FixedEvaluator(EvaluationResult(0.01, 0.1, 0.011, 0.105)),
         prior_stores=stores,
         prior_rewriter=prior_rewriter,
         prior_manager=PriorManager(),
@@ -138,7 +138,7 @@ def test_minor_fluctuation_valid_child_skips_prior_rewrite():
 
 def test_validation_strength_improvement_triggers_prior_rewrite():
     dag = LineageDAG()
-    seed = dag.add_seed(FactorExpression("close"), EvaluationResult(0, 0.1, 0, -0.1))
+    seed = dag.add_seed(FactorExpression("close"), EvaluationResult(0.01, 0.1, -0.010, -0.1))
     prior_rewriter = MockPriorRewriter()
     stores = PriorStores(
         mutation_by_lineage={seed.lineage_id: mutation_prior()},
@@ -150,7 +150,7 @@ def test_validation_strength_improvement_triggers_prior_rewrite():
         run_id="run",
         dag=dag,
         validator=Validator({"close"}, {"rank"}),
-        evaluator=FixedEvaluator(EvaluationResult(0, 0.1, 0, -0.13)),
+        evaluator=FixedEvaluator(EvaluationResult(0.01, 0.1, -0.013, -0.13)),
         prior_stores=stores,
         prior_rewriter=prior_rewriter,
         prior_manager=PriorManager(),
@@ -165,7 +165,7 @@ def test_validation_strength_improvement_triggers_prior_rewrite():
 
 def test_prior_rewrite_timeout_falls_back_and_keeps_valid_child(tmp_path):
     dag = LineageDAG()
-    seed = dag.add_seed(FactorExpression("close"), EvaluationResult(0, 0.1, 0, -0.1))
+    seed = dag.add_seed(FactorExpression("close"), EvaluationResult(0.01, 0.1, -0.010, -0.1))
     prior_rewriter = FailingGlobalMutationRewriter()
     old_global = global_mutation_prior()
     stores = PriorStores(
@@ -179,7 +179,7 @@ def test_prior_rewrite_timeout_falls_back_and_keeps_valid_child(tmp_path):
         run_id="run",
         dag=dag,
         validator=Validator({"close"}, {"rank"}),
-        evaluator=FixedEvaluator(EvaluationResult(0, 0.1, 0, -0.13)),
+        evaluator=FixedEvaluator(EvaluationResult(0.01, 0.1, -0.013, -0.13)),
         prior_stores=stores,
         prior_rewriter=prior_rewriter,
         prior_manager=PriorManager(logger=recorder),
@@ -198,7 +198,7 @@ def test_prior_rewrite_timeout_falls_back_and_keeps_valid_child(tmp_path):
 
 def test_invalid_candidate_does_not_enter_dag_or_rewrite_priors():
     dag = LineageDAG()
-    seed = dag.add_seed(FactorExpression("close"), EvaluationResult(0, 0.1, 0, 0.1))
+    seed = dag.add_seed(FactorExpression("close"), EvaluationResult(0.01, 0.1, 0.01, 0.1))
     prior_rewriter = MockPriorRewriter()
     stores = PriorStores(
         mutation_by_lineage={seed.lineage_id: mutation_prior()},
@@ -227,8 +227,8 @@ def test_invalid_candidate_does_not_enter_dag_or_rewrite_priors():
 
 def test_crossover_candidate_uses_higher_validation_parent_as_primary_lineage():
     dag = LineageDAG()
-    weak = dag.add_seed(FactorExpression("close"), EvaluationResult(0, 0.1, 0, 0.1))
-    strong = dag.add_seed(FactorExpression("open"), EvaluationResult(0, 0.2, 0, 0.9))
+    weak = dag.add_seed(FactorExpression("close"), EvaluationResult(0.01, 0.1, 0.01, 0.1))
+    strong = dag.add_seed(FactorExpression("open"), EvaluationResult(0.02, 0.2, 0.09, 0.9))
     updated_cross = crossover_prior()
     updated_cross.complementarity_profile = "ranked price inputs transfer"
     updated_global = global_crossover_prior()

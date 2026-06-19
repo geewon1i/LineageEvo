@@ -486,8 +486,8 @@ class SearchEngine:
             expression_diff=expression_diff,
             train_score=child.evaluation,
             validation_score=child.evaluation,
-            delta_train_score=delta.train_icir_delta,
-            delta_validation_score=delta.validation_icir_delta,
+            delta_train_score=delta.train_ic_delta,
+            delta_validation_score=delta.validation_ic_delta,
             validity_info=validity_info,
             parent_ids=[parent.factor_id],
             child_id=child.factor_id,
@@ -528,8 +528,8 @@ class SearchEngine:
             expression_diff=expression_diff,
             train_score=child.evaluation,
             validation_score=child.evaluation,
-            delta_train_score=delta.train_icir_delta,
-            delta_validation_score=delta.validation_icir_delta,
+            delta_train_score=delta.train_ic_delta,
+            delta_validation_score=delta.validation_ic_delta,
             validity_info=validity_info,
             parent_ids=[primary_parent.factor_id, secondary_parent.factor_id],
             child_id=child.factor_id,
@@ -620,11 +620,11 @@ class SearchEngine:
             parent = self.dag.nodes[edge.parent_id]
             if child.lineage_id != lineage_id or child.evaluation is None or parent.evaluation is None:
                 continue
-            recent_deltas.append(child.evaluation.validation_icir - parent.evaluation.validation_icir)
+            recent_deltas.append(child.evaluation.validation_ic - parent.evaluation.validation_ic)
         recent = recent_deltas[-5:]
         gap = 0.0
         if representative is not None and representative.evaluation is not None:
-            gap = abs(representative.evaluation.train_icir - representative.evaluation.validation_icir)
+            gap = abs(abs(representative.evaluation.train_ic) - abs(representative.evaluation.validation_ic))
         trend_config = self.prior_update_trigger.config
         trend_window = max(1, int(trend_config.trend_window))
         strength_deltas = self._lineage_strength_deltas(lineage_id)[-trend_window:]
@@ -640,12 +640,12 @@ class SearchEngine:
             # Keep current parent context without replacing B_L^t representative.
             "context_factor_id": representative.factor_id if representative else None,
             "context_expression": representative.expression.raw if representative else None,
-            "recent_validation_icir_deltas": recent,
-            "recent_mean_validation_icir_delta": sum(recent) / len(recent) if recent else 0.0,
+            "recent_validation_ic_deltas": recent,
+            "recent_mean_validation_ic_delta": sum(recent) / len(recent) if recent else 0.0,
             "recent_validation_strength_deltas": strength_deltas,
             "lineage_trend_signal": trend_signal,
             "lineage_trend_state": trend_state,
-            "train_validation_icir_gap": gap,
+            "train_validation_ic_gap": gap,
         }
 
     def _lineage_strength_deltas(self, lineage_id: str) -> list[float]:
@@ -657,7 +657,7 @@ class SearchEngine:
             parent = self.dag.nodes[edge.parent_id]
             if child.lineage_id != lineage_id or child.evaluation is None or parent.evaluation is None:
                 continue
-            deltas.append(abs(child.evaluation.validation_icir) - abs(parent.evaluation.validation_icir))
+            deltas.append(abs(child.evaluation.validation_ic) - abs(parent.evaluation.validation_ic))
         return deltas
 
     def _raw_ancestral_trace(self, factor_id: str) -> list[dict[str, Any]]:
@@ -819,6 +819,6 @@ class SearchEngine:
 
     @staticmethod
     def _primary_parent(parent_a: FactorNode, parent_b: FactorNode) -> FactorNode:
-        a_score = parent_a.evaluation.validation_icir if parent_a.evaluation else float("-inf")
-        b_score = parent_b.evaluation.validation_icir if parent_b.evaluation else float("-inf")
+        a_score = abs(parent_a.evaluation.validation_ic) if parent_a.evaluation else float("-inf")
+        b_score = abs(parent_b.evaluation.validation_ic) if parent_b.evaluation else float("-inf")
         return parent_b if b_score > a_score else parent_a

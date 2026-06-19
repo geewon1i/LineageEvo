@@ -70,7 +70,12 @@ class ExperimentRunner:
     def run(self) -> SearchEngine:
         evaluator = self.evaluator or MockEvaluator()
         validator = self.validator or QlibExpressionValidator(max_length=self.config.factor_length_limit, execute_check=False)
-        dag = LineageDAG(active_pool_size=self.config.active_pool_size)
+        dag = LineageDAG(
+            active_pool_size=self.config.active_pool_size,
+            elite_archive_size=self.config.elite_archive_size,
+            max_active_lineage_ratio=self.config.max_active_lineage_ratio,
+            min_active_lineages_before_cap=self.config.min_active_lineages_before_cap,
+        )
         self._generate_seed_nodes(dag, evaluator, validator)     #生成初始因子
 
         prior_stores = PriorStores(

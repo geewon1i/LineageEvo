@@ -276,6 +276,10 @@ def _ablation_mode_from_args(args) -> AblationMode:
 def _search_config_from_args(args, base: SearchConfig) -> SearchConfig:
     return SearchConfig(
         active_pool_size=base.active_pool_size,
+        elite_archive_size=base.elite_archive_size,
+        max_active_lineage_ratio=base.max_active_lineage_ratio,
+        min_active_lineages_before_cap=base.min_active_lineages_before_cap,
+        lineage_concentration_weight=base.lineage_concentration_weight,
         factor_prompt_length_limit=base.factor_prompt_length_limit,
         factor_length_limit=base.factor_length_limit,
         target_valid_evaluations=args.target_valid if args.target_valid is not None else base.target_valid_evaluations,
@@ -289,8 +293,8 @@ def _search_config_from_args(args, base: SearchConfig) -> SearchConfig:
         max_seed_generation_attempts=args.max_seed_generation_attempts
         if args.max_seed_generation_attempts is not None
         else base.max_seed_generation_attempts,
-        parent_train_icir_weight=base.parent_train_icir_weight,
-        parent_validation_icir_weight=base.parent_validation_icir_weight,
+        parent_train_ic_weight=base.parent_train_ic_weight,
+        parent_validation_ic_weight=base.parent_validation_ic_weight,
         parent_gap_penalty_weight=base.parent_gap_penalty_weight,
         parent_weight_epsilon=base.parent_weight_epsilon,
     )
@@ -350,9 +354,10 @@ def _print_final_outputs(run_dir: Path) -> None:
                 "  "
                 f"rank={row.get('selection_rank')} "
                 f"factor_id={row.get('factor_id')} "
-                f"raw_validation_icir={_fmt_float(row.get('raw_validation_icir') or row.get('validation_icir'))} "
+                f"raw_validation_ic={_fmt_float(row.get('raw_validation_ic') or row.get('validation_ic'))} "
                 f"selection_score={_fmt_float(row.get('selection_score'))} "
                 f"orientation={row.get('orientation')} "
+                f"train_ic={_fmt_float(row.get('train_ic'))} "
                 f"train_icir={_fmt_float(row.get('train_icir'))} "
                 f"expr={_shorten(row.get('expression', ''))}"
             )

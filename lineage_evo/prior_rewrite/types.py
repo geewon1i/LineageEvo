@@ -50,8 +50,8 @@ class PriorRewriteInput:
             "child_factor": self.child_factor.normalized if self.child_factor else None,
             "child_metrics": child_metrics.as_dict() if child_metrics else None,
             "delta_metrics": {
-                "train_icir_delta": self.delta_train_score,
-                "validation_icir_delta": self.delta_validation_score,
+                "train_ic_delta": self.delta_train_score,
+                "validation_ic_delta": self.delta_validation_score,
             },
             "validity_info": self.validity_info,
             statistics_key: self._compact_lineage_summary() if compact else self.recent_lineage_statistics,
@@ -65,9 +65,11 @@ class PriorRewriteInput:
             "age",
             "size",
             "active_size",
+            "best_validation_ic",
             "best_validation_icir",
             "lineage_trend_state",
             "lineage_trend_signal",
+            "train_validation_ic_gap",
             "train_validation_icir_gap",
         ]
         summary = {key: stats.get(key) for key in keys if key in stats}

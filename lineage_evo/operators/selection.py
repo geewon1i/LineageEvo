@@ -30,7 +30,7 @@ class OperatorSchedule:
 
 
 class ParentSelector:
-    """Select parents by combined ICIR score with overfit-gap penalty."""
+    """Select parents by IC strength with train-validation gap penalty."""
 
     def __init__(self, config: SearchConfig | None = None, rng: random.Random | None = None) -> None:
         self.config = config or SearchConfig()
@@ -40,17 +40,25 @@ class ParentSelector:
         active = self._active_nodes(dag)
         if not active:
             raise ValueError("cannot select mutation parent from empty active pool")
-        return self._score_weighted_choice(active)
+        lineage_id = self._select_lineage(dag.active_by_lineage(), dag)
+        return self._score_weighted_choice([dag.nodes[node_id] for node_id in dag.active_by_lineage()[lineage_id]])
 
     def select_crossover_parents(self, dag: LineageDAG) -> tuple[FactorNode, FactorNode]:
         active = self._active_nodes(dag)
         if len(active) < 2:
             raise ValueError("crossover requires at least two active factors")
-        first = self._score_weighted_choice(active)
-        candidates = [node for node in active if node.factor_id != first.factor_id]
-        different_lineage = [node for node in candidates if node.lineage_id != first.lineage_id]
-        if different_lineage:
-            candidates = different_lineage
+        buckets = dag.active_by_lineage()
+        primary_lineage_id = self._select_lineage(buckets, dag)
+        first = self._score_weighted_choice([dag.nodes[node_id] for node_id in buckets[primary_lineage_id]])
+        secondary_buckets = {lineage_id: node_ids for lineage_id, node_ids in buckets.items() if lineage_id != primary_lineage_id}
+        if not secondary_buckets:
+            secondary_buckets = {
+                lineage_id: [node_id for node_id in node_ids if node_id != first.factor_id]
+                for lineage_id, node_ids in buckets.items()
+            }
+            secondary_buckets = {lineage_id: node_ids for lineage_id, node_ids in secondary_buckets.items() if node_ids}
+        secondary_lineage_id = self._select_lineage(secondary_buckets, dag)
+        candidates = [dag.nodes[node_id] for node_id in secondary_buckets[secondary_lineage_id] if node_id != first.factor_id]
         structurally_different = [node for node in candidates if self._structure_key(node.expression) != self._structure_key(first.expression)]
         if structurally_different:
             candidates = structurally_different
@@ -63,12 +71,12 @@ class ParentSelector:
     def parent_score(self, node: FactorNode) -> float:
         if node.evaluation is None:
             return 0.0
-        train = node.evaluation.train_icir
-        valid = node.evaluation.validation_icir
+        train = abs(node.evaluation.train_ic)
+        valid = abs(node.evaluation.validation_ic)
         gap = abs(train - valid)
         return (
-            self.config.parent_train_icir_weight * train
-            + self.config.parent_validation_icir_weight * valid
+            self.config.parent_train_ic_weight * train
+            + self.config.parent_validation_ic_weight * valid
             - self.config.parent_gap_penalty_weight * gap
         )
 
@@ -79,6 +87,23 @@ class ParentSelector:
         min_score = min(scores)
         weights = [score - min_score + self.config.parent_weight_epsilon for score in scores]
         return self.rng.choices(nodes, weights=weights, k=1)[0]
+
+    def _select_lineage(self, buckets: dict[str, list[str]], dag: LineageDAG) -> str:
+        lineage_ids = [lineage_id for lineage_id, node_ids in buckets.items() if node_ids]
+        if not lineage_ids:
+            raise ValueError("cannot select lineage from empty active pool")
+        scores = [self._lineage_score(lineage_id, buckets[lineage_id], dag) for lineage_id in lineage_ids]
+        if max(scores) == min(scores):
+            return self.rng.choice(lineage_ids)
+        min_score = min(scores)
+        weights = [score - min_score + self.config.parent_weight_epsilon for score in scores]
+        return self.rng.choices(lineage_ids, weights=weights, k=1)[0]
+
+    def _lineage_score(self, lineage_id: str, node_ids: list[str], dag: LineageDAG) -> float:
+        best = max(self.parent_score(dag.nodes[node_id]) for node_id in node_ids)
+        active_total = max(1, len(dag.active_ids))
+        active_ratio = len(node_ids) / active_total
+        return best - self.config.lineage_concentration_weight * active_ratio
 
     def _non_dominant_lineage_nodes(self, nodes: list[FactorNode]) -> list[FactorNode]:
         counts: dict[str, int] = {}

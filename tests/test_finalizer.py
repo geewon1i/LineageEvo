@@ -12,11 +12,11 @@ from lineage_evo.lineage import LineageDAG
 from lineage_evo.recording import SearchRecorder
 
 
-def test_finalizer_selects_top_absolute_validation_icir_and_writes_orientation(tmp_path):
+def test_finalizer_selects_top_absolute_validation_ic_and_writes_orientation(tmp_path):
     dag = LineageDAG()
-    negative_strong = dag.add_seed(FactorExpression("$close"), EvaluationResult(0.0, 0.1, 0.0, -0.9))
-    high = dag.add_seed(FactorExpression("Rank($close)"), EvaluationResult(0.0, 0.2, 0.0, 0.8))
-    mid = dag.add_seed(FactorExpression("TsMean($close, 5)"), EvaluationResult(0.0, 0.3, 0.0, 0.1))
+    negative_strong = dag.add_seed(FactorExpression("$close"), EvaluationResult(0.0, 0.1, -0.09, -0.9))
+    high = dag.add_seed(FactorExpression("Rank($close)"), EvaluationResult(0.0, 0.2, 0.08, 0.8))
+    mid = dag.add_seed(FactorExpression("TsMean($close, 5)"), EvaluationResult(0.0, 0.3, 0.01, 0.1))
 
     finalizer = Finalizer(
         qlib_config=None,
@@ -30,17 +30,18 @@ def test_finalizer_selects_top_absolute_validation_icir_and_writes_orientation(t
     rows = list(csv.DictReader((tmp_path / "selected_factors.csv").open(encoding="utf-8")))
     assert result.selected_count == 2
     assert rows[0]["factor_id"] == negative_strong.factor_id
+    assert rows[0]["selection_source"] == "elite_archive"
     assert rows[0]["orientation"] == "-1"
-    assert rows[0]["selection_score"] == "0.9"
+    assert rows[0]["selection_score"] == "0.09"
     assert rows[1]["factor_id"] == high.factor_id
     assert mid.factor_id not in {row["factor_id"] for row in rows}
 
 
 def test_finalizer_skips_duplicate_normalized_expressions(tmp_path):
     dag = LineageDAG()
-    best = dag.add_seed(FactorExpression("$close"), EvaluationResult(0.0, 0.1, 0.0, 0.9))
-    duplicate = dag.add_seed(FactorExpression("close"), EvaluationResult(0.0, 0.2, 0.0, 0.8))
-    distinct = dag.add_seed(FactorExpression("Rank($open)"), EvaluationResult(0.0, 0.3, 0.0, 0.7))
+    best = dag.add_seed(FactorExpression("$close"), EvaluationResult(0.0, 0.1, 0.09, 0.9))
+    duplicate = dag.add_seed(FactorExpression("close"), EvaluationResult(0.0, 0.2, 0.08, 0.8))
+    distinct = dag.add_seed(FactorExpression("Rank($open)"), EvaluationResult(0.0, 0.3, 0.07, 0.7))
 
     finalizer = Finalizer(
         qlib_config=None,
@@ -55,9 +56,29 @@ def test_finalizer_skips_duplicate_normalized_expressions(tmp_path):
     assert duplicate.factor_id not in {node.factor_id for node in selected}
 
 
+def test_finalizer_prefers_elite_archive_over_active_pool(tmp_path):
+    dag = LineageDAG(active_pool_size=1, elite_archive_size=3)
+    strong = dag.add_seed(FactorExpression("$close"), EvaluationResult(0.0, 0.1, 0.09, 0.9))
+    weak = dag.add_seed(FactorExpression("$open"), EvaluationResult(0.0, 0.2, 0.01, 0.1))
+    assert weak.factor_id in dag.active_ids
+    assert strong.factor_id not in dag.active_ids
+    assert strong.factor_id in dag.elite_ids
+
+    finalizer = Finalizer(
+        qlib_config=None,
+        selection_config=SelectionConfig(final_top_k=1),
+        backtest_config=BacktestConfig(enabled=False),
+        recorder=SearchRecorder(tmp_path),
+    )
+
+    selected = finalizer.select(dag)
+
+    assert [node.factor_id for node in selected] == [strong.factor_id]
+
+
 def test_test_ic_rows_use_validation_orientation(tmp_path):
     dag = LineageDAG()
-    node = dag.add_seed(FactorExpression("$close"), EvaluationResult(0.0, 0.1, 0.0, -0.9))
+    node = dag.add_seed(FactorExpression("$close"), EvaluationResult(0.0, 0.1, -0.09, -0.9))
     finalizer = Finalizer(
         qlib_config=QlibConfig(),
         selection_config=SelectionConfig(final_top_k=1),
@@ -82,7 +103,7 @@ def test_test_ic_rows_use_validation_orientation(tmp_path):
 
 def test_composite_signal_uses_validation_orientation(tmp_path, monkeypatch):
     dag = LineageDAG()
-    node = dag.add_seed(FactorExpression("$close"), EvaluationResult(0.0, 0.1, 0.0, -0.9))
+    node = dag.add_seed(FactorExpression("$close"), EvaluationResult(0.0, 0.1, -0.09, -0.9))
     finalizer = Finalizer(
         qlib_config=QlibConfig(),
         selection_config=SelectionConfig(final_top_k=1),
@@ -117,7 +138,7 @@ def test_composite_signal_uses_validation_orientation(tmp_path, monkeypatch):
 
 def test_composite_test_ic_rows_use_oriented_equal_weight_signal(tmp_path):
     dag = LineageDAG()
-    node = dag.add_seed(FactorExpression("$close"), EvaluationResult(0.0, 0.1, 0.0, -0.9))
+    node = dag.add_seed(FactorExpression("$close"), EvaluationResult(0.0, 0.1, -0.09, -0.9))
     finalizer = Finalizer(
         qlib_config=QlibConfig(),
         selection_config=SelectionConfig(final_top_k=1),

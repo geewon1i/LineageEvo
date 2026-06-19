@@ -27,11 +27,15 @@ class EvaluationResult:
 
 @dataclass(frozen=True)
 class ScoreDelta:
+    train_ic_delta: float
+    validation_ic_delta: float
     train_icir_delta: float
     validation_icir_delta: float
 
     def as_dict(self) -> dict[str, float]:
         return {
+            "train_ic_delta": self.train_ic_delta,
+            "validation_ic_delta": self.validation_ic_delta,
             "train_icir_delta": self.train_icir_delta,
             "validation_icir_delta": self.validation_icir_delta,
         }
@@ -39,6 +43,8 @@ class ScoreDelta:
     @classmethod
     def from_results(cls, parent: EvaluationResult, child: EvaluationResult) -> "ScoreDelta":
         return cls(
+            train_ic_delta=child.train_ic - parent.train_ic,
+            validation_ic_delta=child.validation_ic - parent.validation_ic,
             train_icir_delta=child.train_icir - parent.train_icir,
             validation_icir_delta=child.validation_icir - parent.validation_icir,
         )
@@ -63,4 +69,3 @@ class MockEvaluator:
             validation_ic=validation,
             validation_icir=validation * 10,
         )
-

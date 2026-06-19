@@ -70,8 +70,8 @@ def test_ablation_mode_argument_aliases_are_supported(monkeypatch, tmp_path):
 
 def test_print_final_outputs_includes_test_and_backtest_summary(tmp_path, capsys):
     (tmp_path / "selected_factors.csv").write_text(
-        "selection_rank,factor_id,expression,train_icir,raw_validation_icir,selection_score,orientation\n"
-        "1,f1,Rank($close),0.1,-0.2,0.2,-1\n",
+        "selection_rank,factor_id,expression,train_ic,train_icir,raw_validation_ic,raw_validation_icir,selection_score,orientation\n"
+        "1,f1,Rank($close),0.01,0.1,-0.02,-0.2,0.02,-1\n",
         encoding="utf-8",
     )
     (tmp_path / "test_ic_results.csv").write_text(

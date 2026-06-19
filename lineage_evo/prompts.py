@@ -145,7 +145,7 @@ You will receive:
 - operator type,
 - deterministic expression diff,
 - train and validation performance,
-- score deltas,
+- IC score deltas,
 - validity information,
 - update trigger information,
 - program-computed search-control state, when relevant,
@@ -175,8 +175,8 @@ Important principles:
 
 3. Success / failure evidence:
    Do not treat every small metric change as success or failure.
-   Strengthen successful patterns only when the update trigger indicates meaningful validation improvement.
-   Record failed patterns only when the update trigger indicates meaningful validation degradation, or when there is clear instability / overfitting evidence.
+   Strengthen successful patterns only when the update trigger indicates meaningful validation IC-strength improvement.
+   Record failed patterns only when the update trigger indicates meaningful validation IC-strength degradation, or when there is clear instability / overfitting evidence.
 
 4. Search-control states are read-only:
    Do not output or modify quality_trend, stagnation_state, or mutation_strength.

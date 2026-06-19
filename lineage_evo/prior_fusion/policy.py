@@ -117,7 +117,11 @@ class PriorFusionPolicy:
             reasons.append("medium lineage risk")
 
         recent_delta = float(
-            lineage_state.get("lineage_trend_signal", lineage_state.get("recent_mean_validation_icir_delta", 0.0)) or 0.0
+            lineage_state.get(
+                "lineage_trend_signal",
+                lineage_state.get("recent_mean_validation_ic_delta", lineage_state.get("recent_mean_validation_icir_delta", 0.0)),
+            )
+            or 0.0
         )
         if recent_delta > 0:
             local_weight += 0.10
@@ -126,13 +130,13 @@ class PriorFusionPolicy:
             local_weight -= 0.10
             reasons.append("lineage validation strength declined")
 
-        gap = float(lineage_state.get("train_validation_icir_gap", 0.0) or 0.0)
-        if gap >= 0.20:
+        gap = float(lineage_state.get("train_validation_ic_gap", lineage_state.get("train_validation_icir_gap", 0.0)) or 0.0)
+        if gap >= 0.02:
             local_weight -= 0.15
-            reasons.append("large train-validation ICIR gap")
-        elif gap >= 0.10:
+            reasons.append("large train-validation IC gap")
+        elif gap >= 0.01:
             local_weight -= 0.05
-            reasons.append("moderate train-validation ICIR gap")
+            reasons.append("moderate train-validation IC gap")
 
         local_weight = round(min(0.85, max(0.20, local_weight)), 2)
         return self._fixed(local_weight, "; ".join(reasons))

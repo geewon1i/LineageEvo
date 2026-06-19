@@ -71,10 +71,11 @@ def test_evidence_dict_can_use_compact_lineage_summary_for_llm_prompt():
             "age": 3,
             "size": 8,
             "active_size": 5,
+            "best_validation_ic": 0.042,
             "best_validation_icir": 0.42,
             "lineage_trend_state": "improving",
             "lineage_trend_signal": 0.031,
-            "train_validation_icir_gap": 0.08,
+            "train_validation_ic_gap": 0.008,
             "recent_validation_strength_deltas": [0.01, -0.02, 0.03, 0.04],
             "representative_expression": "full log only",
         }
@@ -161,7 +162,7 @@ def test_manager_logs_deterministic_control_state_without_storing_it_in_prior():
         {
             "lineage_trend_signal": -0.03,
             "lineage_trend_state": "worsening",
-            "train_validation_icir_gap": 0.25,
+            "train_validation_ic_gap": 0.025,
             "recent_validation_strength_deltas": [-0.01, -0.02, -0.03, -0.04],
         }
     )
