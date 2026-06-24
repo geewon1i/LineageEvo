@@ -1,3 +1,5 @@
+import pytest
+
 from lineage_evo.config import PriorUpdateConfig
 from lineage_evo.evaluation import EvaluationResult, ScoreDelta
 from lineage_evo.lineage import OperatorType
@@ -13,8 +15,27 @@ def decide(parent: EvaluationResult, child: EvaluationResult):
         PriorUpdateConfig(
             improvement_abs_floor=0.003,
             improvement_ratio=0.30,
-            degradation_abs_floor=0.008,
-            degradation_ratio=0.45,
+            degradation_abs_floor=0.012,
+            degradation_ratio=0.60,
+        )
+    ).evaluate(
+        parent=parent,
+        child=child,
+        delta=ScoreDelta.from_results(parent, child),
+        validity_info={"is_valid": True},
+        operator=OperatorType.MUTATION,
+        generation=1,
+    )
+
+
+def decide_train_only(parent: EvaluationResult, child: EvaluationResult):
+    return PriorUpdateTrigger(
+        PriorUpdateConfig(
+            train_only=True,
+            improvement_abs_floor=0.003,
+            improvement_ratio=0.30,
+            degradation_abs_floor=0.012,
+            degradation_ratio=0.60,
         )
     ).evaluate(
         parent=parent,
@@ -31,6 +52,20 @@ def test_trigger_uses_validation_strength_improvement():
 
     assert decision.should_rewrite_prior is True
     assert decision.trigger_reason == "significant_validation_improvement"
+
+
+def test_score_delta_uses_absolute_ic_strength():
+    parent = eval_result(-0.06, -0.06)
+    stronger_child = eval_result(-0.08, -0.08)
+    weaker_child = eval_result(-0.04, -0.04)
+
+    improvement = ScoreDelta.from_results(parent, stronger_child)
+    degradation = ScoreDelta.from_results(parent, weaker_child)
+
+    assert improvement.train_ic_strength_delta == pytest.approx(0.02)
+    assert improvement.validation_ic_strength_delta == pytest.approx(0.02)
+    assert degradation.train_ic_strength_delta == pytest.approx(-0.02)
+    assert degradation.validation_ic_strength_delta == pytest.approx(-0.02)
 
 
 def test_trigger_skips_small_degradation():
@@ -55,7 +90,7 @@ def test_trigger_significant_relative_improvement_for_strong_parent():
 
 
 def test_trigger_significant_relative_degradation():
-    decision = decide(eval_result(0.01, 0.020), eval_result(0.01, 0.011))
+    decision = decide(eval_result(0.01, 0.020), eval_result(0.01, 0.008))
 
     assert decision.should_rewrite_prior is True
     assert decision.trigger_reason == "significant_validation_degradation"
@@ -66,6 +101,13 @@ def test_trigger_potential_overfitting():
 
     assert decision.should_rewrite_prior is True
     assert decision.trigger_reason == "potential_overfitting"
+
+
+def test_train_only_trigger_uses_train_strength_and_disables_overfitting():
+    decision = decide_train_only(eval_result(0.010, 0.010), eval_result(0.013, 0.010))
+
+    assert decision.should_rewrite_prior is True
+    assert decision.trigger_reason == "significant_train_improvement"
 
 
 def test_trigger_minor_fluctuation_skips_rewrite():

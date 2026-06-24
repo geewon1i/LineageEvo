@@ -38,6 +38,7 @@ def main() -> None:
     smoke.add_argument("--candidate-llm", choices=["mock", "openai-compatible"], default=None)
     smoke.add_argument("--prior-llm", choices=["mock", "openai-compatible"], default=None)
     smoke.add_argument("--seed-count", type=int, default=None)
+    smoke.add_argument("--train-only", action="store_true", help="Use train IC for search decisions and final selection.")
     smoke.add_argument("--max-seed-generation-attempts", type=int, default=None)
     smoke.add_argument("--verbose", action="store_true")
     smoke.add_argument("--print-llm-io", action="store_true")
@@ -60,6 +61,7 @@ def main() -> None:
     qlib_smoke.add_argument("--candidate-llm", choices=["mock", "openai-compatible"], default=None)
     qlib_smoke.add_argument("--prior-llm", choices=["mock", "openai-compatible"], default=None)
     qlib_smoke.add_argument("--seed-count", type=int, default=None)
+    qlib_smoke.add_argument("--train-only", action="store_true", help="Merge valid into train and use train IC for decisions.")
     qlib_smoke.add_argument("--max-seed-generation-attempts", type=int, default=None)
     qlib_smoke.add_argument("--final-top-k", type=int, default=None)
     qlib_smoke.add_argument("--backtest-topk", type=int, default=None)
@@ -118,8 +120,8 @@ def main() -> None:
     elif args.command == "qlib-smoke-run":
         reporter = _build_reporter(args)
         experiment_config = ExperimentConfig.from_toml(args.config)
-        qlib_config = _qlib_config_from_args(args, experiment_config.qlib)
         config = _search_config_from_args(args, experiment_config.search)
+        qlib_config = _qlib_config_from_args(args, experiment_config.qlib, train_only=config.train_only)
         selection_config = _selection_config_from_args(args, experiment_config.selection)
         backtest_config = _backtest_config_from_args(args, experiment_config.backtest)
         candidate_provider = args.candidate_llm or args.llm or experiment_config.llm.get("candidate_provider", "mock")
@@ -276,6 +278,7 @@ def _ablation_mode_from_args(args) -> AblationMode:
 def _search_config_from_args(args, base: SearchConfig) -> SearchConfig:
     return SearchConfig(
         active_pool_size=base.active_pool_size,
+        train_only=bool(getattr(args, "train_only", False) or base.train_only),
         elite_archive_size=base.elite_archive_size,
         max_active_lineage_ratio=base.max_active_lineage_ratio,
         min_active_lineages_before_cap=base.min_active_lineages_before_cap,
@@ -303,7 +306,7 @@ def _search_config_from_args(args, base: SearchConfig) -> SearchConfig:
 def _selection_config_from_args(args, base: SelectionConfig) -> SelectionConfig:
     return SelectionConfig(
         final_top_k=args.final_top_k if args.final_top_k is not None else base.final_top_k,
-        selection_metric=base.selection_metric,
+        selection_metric="train_ic" if getattr(args, "train_only", False) else base.selection_metric,
     )
 
 
@@ -317,15 +320,17 @@ def _backtest_config_from_args(args, base: BacktestConfig) -> BacktestConfig:
     )
 
 
-def _qlib_config_from_args(args, base: QlibConfig) -> QlibConfig:
+def _qlib_config_from_args(args, base: QlibConfig, *, train_only: bool = False) -> QlibConfig:
+    valid_end = args.valid_end or base.valid_end
+    train_end = valid_end if train_only or getattr(args, "train_only", False) else (args.train_end or base.train_end)
     return QlibConfig(
         provider_uri=args.provider_uri or base.provider_uri,
         region=base.region,
         market=args.market or base.market,
         train_start=args.train_start or base.train_start,
-        train_end=args.train_end or base.train_end,
+        train_end=train_end,
         valid_start=args.valid_start or base.valid_start,
-        valid_end=args.valid_end or base.valid_end,
+        valid_end=valid_end,
         test_start=args.test_start or base.test_start,
         test_end=args.test_end or base.test_end,
         label_expression=base.label_expression,

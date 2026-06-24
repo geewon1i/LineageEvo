@@ -110,10 +110,13 @@ class PriorManager:
         list_fields = self._pattern_list_fields(data)
 
         for field_name in list_fields:
+            decision_delta = rewrite_input.decision_delta_score
+            if decision_delta is None:
+                decision_delta = rewrite_input.delta_validation_score
             pruned, field_removed, field_warnings = self._sanitize_pattern_list(
                 data[field_name],
                 current_generation=rewrite_input.generation,
-                delta_validation=rewrite_input.delta_validation_score,
+                delta_validation=decision_delta,
                 delta_train=rewrite_input.delta_train_score,
             )
             data[field_name] = pruned
@@ -128,6 +131,7 @@ class PriorManager:
 
         if (
             isinstance(prior, MutationPrior)
+            and rewrite_input.decision_metric != "train_ic_strength"
             and rewrite_input.delta_train_score is not None
             and rewrite_input.delta_validation_score is not None
             and rewrite_input.delta_train_score > 0

@@ -70,11 +70,11 @@ class ConsoleReporter:
         )
         if delta is not None:
             print(
-                "delta: "
-                f"train_ic_delta={delta.train_ic_delta:.6f}, "
-                f"valid_ic_delta={delta.validation_ic_delta:.6f}, "
-                f"train_icir_delta={delta.train_icir_delta:.6f}, "
-                f"valid_icir_delta={delta.validation_icir_delta:.6f}"
+                "strength_delta: "
+                f"train_ic={delta.train_ic_strength_delta:.6f}, "
+                f"valid_ic={delta.validation_ic_strength_delta:.6f}, "
+                f"train_icir={delta.train_icir_strength_delta:.6f}, "
+                f"valid_icir={delta.validation_icir_strength_delta:.6f}"
             )
 
     def generation_summary(self, record: dict[str, Any]) -> None:

@@ -122,8 +122,8 @@ def test_prior_rewrite_prompt_keeps_update_trigger_out_of_evidence():
             "old_prior": mutation_prior().model_dump(mode="json"),
             "new_evidence": {
                 "operator": "mutation",
-                "child_metrics": {"train_ic": 0.01, "validation_ic": 0.02, "train_icir": 0.1, "validation_icir": 0.2},
-                "delta_metrics": {"train_ic_delta": 0.001, "validation_ic_delta": 0.002},
+                "child_metrics": {"train_ic_strength": 0.01, "validation_ic_strength": 0.02},
+                "delta_metrics": {"train_ic_strength_delta": 0.001, "validation_ic_strength_delta": 0.002},
             },
             "update_trigger": {"should_rewrite_prior": True, "trigger_reason": "significant_validation_improvement"},
         },

@@ -63,7 +63,7 @@ class Finalizer:
         self._last_selection_source = "elite_archive" if dag.elite_ids else "active_pool_fallback"
         source_ids = dag.elite_ids or dag.active_ids
         candidates = [dag.nodes[node_id] for node_id in source_ids if dag.nodes[node_id].evaluation is not None]
-        ranked = sorted(candidates, key=lambda node: abs(node.evaluation.validation_ic), reverse=True)
+        ranked = sorted(candidates, key=self._abs_selection_score, reverse=True)
         selected: list[FactorNode] = []
         seen_normalized: set[str] = set()
         for node in ranked:
@@ -87,13 +87,14 @@ class Finalizer:
                     "lineage_id": node.lineage_id,
                     "generation": node.generation,
                     "selection_source": self._last_selection_source,
+                    "selection_metric": self.selection_config.selection_metric,
                     "expression": node.expression.raw,
                     "normalized_expression": self._normalized_selection_key(node),
                     "train_ic": evaluation.train_ic,
                     "train_icir": evaluation.train_icir,
                     "raw_validation_ic": evaluation.validation_ic,
                     "raw_validation_icir": evaluation.validation_icir,
-                    "selection_score": abs(evaluation.validation_ic),
+                    "selection_score": self._abs_selection_score(node),
                     "orientation": self._orientation(node),
                 }
             )
@@ -321,8 +322,19 @@ class Finalizer:
         drawdown = wealth / wealth.cummax() - 1
         return float(drawdown.min())
 
-    @staticmethod
-    def _orientation(node: FactorNode) -> int:
-        if node.evaluation is not None and node.evaluation.validation_ic < 0:
+    def _abs_selection_score(self, node: FactorNode) -> float:
+        value = self._selection_value(node)
+        return abs(value) if value is not None else float("-inf")
+
+    def _orientation(self, node: FactorNode) -> int:
+        value = self._selection_value(node)
+        if value is not None and value < 0:
             return -1
         return 1
+
+    def _selection_value(self, node: FactorNode) -> float | None:
+        if node.evaluation is None:
+            return None
+        if self.selection_config.selection_metric == "train_ic":
+            return node.evaluation.train_ic
+        return node.evaluation.validation_ic

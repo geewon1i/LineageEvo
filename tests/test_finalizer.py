@@ -76,6 +76,29 @@ def test_finalizer_prefers_elite_archive_over_active_pool(tmp_path):
     assert [node.factor_id for node in selected] == [strong.factor_id]
 
 
+def test_train_only_finalizer_selects_and_orients_by_train_ic(tmp_path):
+    dag = LineageDAG(train_only=True)
+    train_best = dag.add_seed(FactorExpression("$close"), EvaluationResult(-0.10, -1.0, 0.01, 0.1))
+    valid_best = dag.add_seed(FactorExpression("$open"), EvaluationResult(0.02, 0.2, 0.20, 2.0))
+
+    finalizer = Finalizer(
+        qlib_config=None,
+        selection_config=SelectionConfig(final_top_k=1, selection_metric="train_ic"),
+        backtest_config=BacktestConfig(enabled=False),
+        recorder=SearchRecorder(tmp_path),
+    )
+
+    result = finalizer.run(dag)
+    rows = list(csv.DictReader((tmp_path / "selected_factors.csv").open(encoding="utf-8")))
+
+    assert result.selected_count == 1
+    assert rows[0]["factor_id"] == train_best.factor_id
+    assert rows[0]["selection_metric"] == "train_ic"
+    assert rows[0]["selection_score"] == "0.1"
+    assert rows[0]["orientation"] == "-1"
+    assert valid_best.factor_id not in {row["factor_id"] for row in rows}
+
+
 def test_test_ic_rows_use_validation_orientation(tmp_path):
     dag = LineageDAG()
     node = dag.add_seed(FactorExpression("$close"), EvaluationResult(0.0, 0.1, -0.09, -0.9))

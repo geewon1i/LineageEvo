@@ -30,6 +30,7 @@ def _env_bool(name: str, default: bool) -> bool:
 @dataclass(frozen=True)
 class SearchConfig:
     active_pool_size: int = 50
+    train_only: bool = False
     elite_archive_size: int = 20
     max_active_lineage_ratio: float = 0.40
     min_active_lineages_before_cap: int = 2
@@ -70,10 +71,11 @@ class PriorRewriteConfig:
 
 @dataclass(frozen=True)
 class PriorUpdateConfig:
+    train_only: bool = False
     improvement_abs_floor: float = 0.003
     improvement_ratio: float = 0.30
-    degradation_abs_floor: float = 0.008
-    degradation_ratio: float = 0.45
+    degradation_abs_floor: float = 0.012
+    degradation_ratio: float = 0.60
     trend_window: int = 5
     trend_alpha: float = 1.0 / 3.0
     trend_epsilon: float = 0.001
@@ -179,6 +181,7 @@ class ExperimentConfig:
         backtest = data.get("backtest", {})
         prior_update = data.get("prior_update", {})
         llm = data.get("llm", {})
+        train_only = search.get("train_only", SearchConfig.train_only)
 
         qlib = QlibConfig(
             provider_uri=os.getenv("LINEAGEEVO_QLIB_PROVIDER_URI", dataset.get("provider_uri", QlibConfig.provider_uri)),
@@ -198,6 +201,7 @@ class ExperimentConfig:
             search=SearchConfig(
                 target_valid_evaluations=search.get("target_valid_evaluations", SearchConfig.target_valid_evaluations),
                 active_pool_size=search.get("active_pool_size", SearchConfig.active_pool_size),
+                train_only=train_only,
                 elite_archive_size=search.get("elite_archive_size", SearchConfig.elite_archive_size),
                 max_active_lineage_ratio=search.get("max_active_lineage_ratio", SearchConfig.max_active_lineage_ratio),
                 min_active_lineages_before_cap=search.get(
@@ -228,7 +232,7 @@ class ExperimentConfig:
             qlib=qlib,
             selection=SelectionConfig(
                 final_top_k=selection.get("final_top_k", SelectionConfig.final_top_k),
-                selection_metric=selection.get("selection_metric", SelectionConfig.selection_metric),
+                selection_metric="train_ic" if train_only else selection.get("selection_metric", SelectionConfig.selection_metric),
             ),
             backtest=BacktestConfig(
                 enabled=backtest.get("enabled", BacktestConfig.enabled),
@@ -238,6 +242,7 @@ class ExperimentConfig:
                 risk_degree=backtest.get("risk_degree", BacktestConfig.risk_degree),
             ),
             prior_update=PriorUpdateConfig(
+                train_only=train_only or prior_update.get("train_only", PriorUpdateConfig.train_only),
                 improvement_abs_floor=prior_update.get(
                     "improvement_abs_floor",
                     prior_update.get("improvement_threshold", PriorUpdateConfig.improvement_abs_floor),

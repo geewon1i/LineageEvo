@@ -11,6 +11,7 @@ dist/
 # Local experiment outputs
 runs/
 *.log
+outputs/
 
 # Local secrets and machine-specific config
 .env

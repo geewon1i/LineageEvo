@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Lineage-conditioned search priors for LLM-based evolutionary factor mining."
 requires-python = ">=3.10"
 dependencies = [
+  "matplotlib>=3.7",
   "pydantic>=2.6,<3",
 ]
 

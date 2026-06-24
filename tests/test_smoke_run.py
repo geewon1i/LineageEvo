@@ -1,3 +1,4 @@
+import csv
 import json
 
 from lineage_evo.config import SearchConfig
@@ -14,6 +15,10 @@ def test_fully_mocked_smoke_run_writes_required_outputs(tmp_path):
     required = [
         "summary_results.csv",
         "final_factor_pool.csv",
+        "elite_archive.csv",
+        "lineage_forest.svg",
+        "lineage_forest.png",
+        "lineage_forest_factor_mapping.csv",
         "search_log.jsonl",
         "candidate_log.jsonl",
         "prior_rewrite_log.jsonl",
@@ -28,6 +33,21 @@ def test_fully_mocked_smoke_run_writes_required_outputs(tmp_path):
     assert candidate["status"] == "valid"
     assert candidate["operator"] == "seed"
     assert "raw_output" in candidate
+
+    elite_rows = list(csv.DictReader((tmp_path / "elite_archive.csv").open(encoding="utf-8")))
+    elite_scores = [float(row["decision_score"]) for row in elite_rows]
+    assert [int(row["elite_rank"]) for row in elite_rows] == list(range(1, len(elite_rows) + 1))
+    assert elite_scores == sorted(elite_scores, reverse=True)
+
+    summary = next(csv.DictReader((tmp_path / "summary_results.csv").open(encoding="utf-8")))
+    assert int(summary["elite_archive_count"]) == len(elite_rows)
+
+    mapping_rows = list(csv.DictReader((tmp_path / "lineage_forest_factor_mapping.csv").open(encoding="utf-8")))
+    assert mapping_rows[0]["display_id"] == "F001"
+    assert mapping_rows[0]["lineage_label"] == "L001"
+    assert (tmp_path / "lineage_forest.svg").read_text(encoding="utf-8").lstrip().startswith("<?xml")
+    assert (tmp_path / "lineage_forest.png").stat().st_size > 0
+    assert not (tmp_path / "lineage_forest.pdf").exists()
 
 
 def test_seed_generation_logs_and_skips_duplicate_normalized_expression(tmp_path):

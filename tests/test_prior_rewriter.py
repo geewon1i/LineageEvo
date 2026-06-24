@@ -1,5 +1,6 @@
 import json
 
+from lineage_evo.evaluation import EvaluationResult, ScoreDelta
 from lineage_evo.factor import FactorExpression, diff_expressions
 from lineage_evo.lineage import OperatorType
 from lineage_evo.llm import LLMResponse, MockLLMClient
@@ -111,3 +112,51 @@ def test_rewriter_uses_compact_lineage_summary_in_prompt():
     assert "representative_expression" not in prompt
     assert "should not be in prompt" not in prompt
     assert "0.04" in prompt
+
+
+def test_rewriter_exposes_absolute_ic_strength_and_strength_delta():
+    client = MockLLMClient(
+        [
+            LLMResponse(
+                json.dumps(
+                    {
+                        "successful_mutation_patterns": [],
+                        "failed_mutation_patterns": [],
+                        "hint": "Use direction-free strength.",
+                        "bias_risk": "low",
+                    }
+                )
+            )
+        ]
+    )
+    parent_score = EvaluationResult(-0.06, -0.6, -0.05, -0.5)
+    child_score = EvaluationResult(-0.08, -0.8, -0.04, -0.4)
+    delta = ScoreDelta.from_results(parent_score, child_score)
+    parent = FactorExpression("close")
+    child = FactorExpression("rank(close)")
+    rewrite_input = PriorRewriteInput(
+        run_id="r1",
+        generation=1,
+        operator=OperatorType.MUTATION,
+        target_prior_type=PriorTarget.MUTATION_LINEAGE,
+        old_prior=empty_mutation_prior(),
+        parent_factors=[parent],
+        child_factor=child,
+        expression_diff=diff_expressions(parent, child),
+        train_score=child_score,
+        validation_score=child_score,
+        delta_train_score=delta.train_ic_strength_delta,
+        delta_validation_score=delta.validation_ic_strength_delta,
+        validity_info={"is_valid": True},
+        parent_scores=[parent_score],
+    )
+
+    LLMPriorRewriter(client).rewrite_mutation_prior(rewrite_input)
+    prompt = client.calls[0]["user_prompt"]
+
+    assert '"train_ic_strength": 0.06' in prompt
+    assert '"train_ic_strength": 0.08' in prompt
+    assert '"train_ic_strength_delta": 0.020000000000000004' in prompt
+    assert '"validation_ic_strength_delta": -0.010000000000000002' in prompt
+    assert "abs(child_IC) - abs(parent_IC)" in prompt
+    assert '"train_ic": -0.08' not in prompt

@@ -130,6 +130,17 @@ class SearchEngine:
         if self.recorder is not None:
             self.recorder.write_summary(self.summary())
             self.recorder.write_final_factor_pool(self.dag)
+            self.recorder.write_elite_archive(self.dag)
+            try:
+                self.recorder.write_lineage_forest(self.dag)
+            except Exception as exc:
+                self.recorder.log_search(
+                    {
+                        "run_id": self.run_id,
+                        "event": "lineage_forest_failed",
+                        "failure_reason": self._format_exception(exc),
+                    }
+                )
         return self.counters
 
     def run_generation(self, generation: int) -> dict[str, int]:   #单次generation
@@ -167,7 +178,7 @@ class SearchEngine:
                         "exactly_one_factor": True,
                     },
                     parent_ids=[node.factor_id for node in parent_nodes],
-                    parent_metrics=[node.evaluation.as_dict() if node.evaluation is not None else {} for node in parent_nodes],
+                    parent_metrics=[node.evaluation.as_llm_dict() if node.evaluation is not None else {} for node in parent_nodes],
                     recent_invalid_or_failed_patterns=list(self.counters.invalid_reason_counts.keys()),
                     duplicate_feedback=duplicate_feedback,
                 )
@@ -336,6 +347,8 @@ class SearchEngine:
             "validation_failure_count": self.counters.validation_failure_count,
             "evaluation_failure_count": self.counters.evaluation_failure_count,
             "duplicate_candidate_count": self.counters.duplicate_candidate_count,
+            "active_pool_count": len(self.dag.active_ids),
+            "elite_archive_count": len(self.dag.elite_ids),
             "stop_reason": self.stop_reason,
         }
 
@@ -486,9 +499,12 @@ class SearchEngine:
             expression_diff=expression_diff,
             train_score=child.evaluation,
             validation_score=child.evaluation,
-            delta_train_score=delta.train_ic_delta,
-            delta_validation_score=delta.validation_ic_delta,
+            delta_train_score=delta.train_ic_strength_delta,
+            delta_validation_score=delta.validation_ic_strength_delta,
             validity_info=validity_info,
+            decision_metric=self._decision_metric(),
+            decision_delta_score=self._decision_delta(delta),
+            parent_scores=[parent.evaluation] if parent.evaluation is not None else [],
             parent_ids=[parent.factor_id],
             child_id=child.factor_id,
             lineage_id=lineage_id,
@@ -528,9 +544,16 @@ class SearchEngine:
             expression_diff=expression_diff,
             train_score=child.evaluation,
             validation_score=child.evaluation,
-            delta_train_score=delta.train_ic_delta,
-            delta_validation_score=delta.validation_ic_delta,
+            delta_train_score=delta.train_ic_strength_delta,
+            delta_validation_score=delta.validation_ic_strength_delta,
             validity_info=validity_info,
+            decision_metric=self._decision_metric(),
+            decision_delta_score=self._decision_delta(delta),
+            parent_scores=[
+                score
+                for score in (primary_parent.evaluation, secondary_parent.evaluation)
+                if score is not None
+            ],
             parent_ids=[primary_parent.factor_id, secondary_parent.factor_id],
             child_id=child.factor_id,
             lineage_id=lineage_id,
@@ -620,11 +643,11 @@ class SearchEngine:
             parent = self.dag.nodes[edge.parent_id]
             if child.lineage_id != lineage_id or child.evaluation is None or parent.evaluation is None:
                 continue
-            recent_deltas.append(child.evaluation.validation_ic - parent.evaluation.validation_ic)
+            recent_deltas.append(abs(self._decision_ic(child)) - abs(self._decision_ic(parent)))
         recent = recent_deltas[-5:]
         gap = 0.0
         if representative is not None and representative.evaluation is not None:
-            gap = abs(abs(representative.evaluation.train_ic) - abs(representative.evaluation.validation_ic))
+            gap = 0.0 if self.config.train_only else abs(abs(representative.evaluation.train_ic) - abs(representative.evaluation.validation_ic))
         trend_config = self.prior_update_trigger.config
         trend_window = max(1, int(trend_config.trend_window))
         strength_deltas = self._lineage_strength_deltas(lineage_id)[-trend_window:]
@@ -640,8 +663,9 @@ class SearchEngine:
             # Keep current parent context without replacing B_L^t representative.
             "context_factor_id": representative.factor_id if representative else None,
             "context_expression": representative.expression.raw if representative else None,
-            "recent_validation_ic_deltas": recent,
-            "recent_mean_validation_ic_delta": sum(recent) / len(recent) if recent else 0.0,
+            "decision_metric": "train_ic" if self.config.train_only else "validation_ic",
+            "recent_decision_ic_strength_deltas": recent,
+            "recent_mean_decision_ic_strength_delta": sum(recent) / len(recent) if recent else 0.0,
             "recent_validation_strength_deltas": strength_deltas,
             "lineage_trend_signal": trend_signal,
             "lineage_trend_state": trend_state,
@@ -657,7 +681,7 @@ class SearchEngine:
             parent = self.dag.nodes[edge.parent_id]
             if child.lineage_id != lineage_id or child.evaluation is None or parent.evaluation is None:
                 continue
-            deltas.append(abs(child.evaluation.validation_ic) - abs(parent.evaluation.validation_ic))
+            deltas.append(abs(self._decision_ic(child)) - abs(self._decision_ic(parent)))
         return deltas
 
     def _raw_ancestral_trace(self, factor_id: str) -> list[dict[str, Any]]:
@@ -689,6 +713,9 @@ class SearchEngine:
             delta_train_score=base.delta_train_score,
             delta_validation_score=base.delta_validation_score,
             validity_info=base.validity_info,
+            decision_metric=base.decision_metric,
+            decision_delta_score=base.decision_delta_score,
+            parent_scores=base.parent_scores,
             parent_ids=base.parent_ids,
             child_id=base.child_id,
             lineage_id=None,
@@ -817,8 +844,22 @@ class SearchEngine:
         message = str(exc)
         return f"{type(exc).__name__}: {message}" if message else type(exc).__name__
 
-    @staticmethod
-    def _primary_parent(parent_a: FactorNode, parent_b: FactorNode) -> FactorNode:
-        a_score = abs(parent_a.evaluation.validation_ic) if parent_a.evaluation else float("-inf")
-        b_score = abs(parent_b.evaluation.validation_ic) if parent_b.evaluation else float("-inf")
+    def _primary_parent(self, parent_a: FactorNode, parent_b: FactorNode) -> FactorNode:
+        a_score = abs(self._decision_ic(parent_a)) if parent_a.evaluation else float("-inf")
+        b_score = abs(self._decision_ic(parent_b)) if parent_b.evaluation else float("-inf")
         return parent_b if b_score > a_score else parent_a
+
+    def _decision_ic(self, node: FactorNode) -> float:
+        if node.evaluation is None:
+            return 0.0
+        return node.evaluation.train_ic if self.config.train_only else node.evaluation.validation_ic
+
+    def _decision_metric(self) -> str:
+        return "train_ic_strength" if self.config.train_only else "validation_ic_strength"
+
+    def _decision_delta(self, delta: ScoreDelta) -> float:
+        return (
+            delta.train_ic_strength_delta
+            if self.config.train_only
+            else delta.validation_ic_strength_delta
+        )

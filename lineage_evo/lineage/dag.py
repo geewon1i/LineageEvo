@@ -42,6 +42,8 @@ class LineageBaseState:
     representative_factor_id: str | None
     representative_expression: str | None
     best_factor_id: str | None
+    best_train_ic: float | None
+    best_train_icir: float | None
     best_validation_ic: float | None
     best_validation_icir: float | None
     age: int
@@ -54,6 +56,8 @@ class LineageBaseState:
             "representative_factor_id": self.representative_factor_id,
             "representative_expression": self.representative_expression,
             "best_factor_id": self.best_factor_id,
+            "best_train_ic": self.best_train_ic,
+            "best_train_icir": self.best_train_icir,
             "best_validation_ic": self.best_validation_ic,
             "best_validation_icir": self.best_validation_icir,
             "age": self.age,
@@ -65,7 +69,8 @@ class LineageBaseState:
 @dataclass
 class LineageDAG:
     active_pool_size: int = 50
-    elite_archive_size: int = 100
+    train_only: bool = False
+    elite_archive_size: int = 20
     max_active_lineage_ratio: float = 0.40
     min_active_lineages_before_cap: int = 2
     nodes: dict[str, FactorNode] = field(default_factory=dict)
@@ -197,13 +202,15 @@ class LineageDAG:
 
         representative = min(nodes, key=lambda node: (node.generation, node.factor_id))
         evaluated = [node for node in nodes if node.evaluation is not None]
-        best = max(evaluated, key=lambda node: abs(node.evaluation.validation_ic)) if evaluated else None
+        best = max(evaluated, key=lambda node: self._abs_decision_ic(node.factor_id)) if evaluated else None
         active_size = sum(1 for node in nodes if node.is_active)
         self.lineage_states[lineage_id] = LineageBaseState(
             lineage_id=lineage_id,
             representative_factor_id=representative.factor_id,
             representative_expression=representative.expression.raw,
             best_factor_id=best.factor_id if best else None,
+            best_train_ic=best.evaluation.train_ic if best and best.evaluation else None,
+            best_train_icir=best.evaluation.train_icir if best and best.evaluation else None,
             best_validation_ic=best.evaluation.validation_ic if best and best.evaluation else None,
             best_validation_icir=best.evaluation.validation_icir if best and best.evaluation else None,
             age=max(node.generation for node in nodes),
@@ -221,21 +228,32 @@ class LineageDAG:
             ]
             if dominant_ids:
                 candidate_pool = max(dominant_ids, key=len)
-                return min(candidate_pool, key=self._abs_validation_ic)
-        return min(self.active_ids, key=self._abs_validation_ic)
+                return min(candidate_pool, key=self._abs_decision_ic)
+        return min(self.active_ids, key=self._abs_decision_ic)
 
     def _abs_validation_ic(self, node_id: str) -> float:
+        return self._abs_decision_ic(node_id)
+
+    def _abs_decision_ic(self, node_id: str) -> float:
         evaluation = self.nodes[node_id].evaluation
-        return abs(evaluation.validation_ic) if evaluation is not None else float("-inf")
+        if evaluation is None:
+            return float("-inf")
+        value = evaluation.train_ic if self.train_only else evaluation.validation_ic
+        return abs(value)
 
     @staticmethod
     def _new_id() -> str:
         return f"f_{uuid4().hex[:12]}"
 
-    @staticmethod
-    def _choose_primary(parent_a: FactorNode, parent_b: FactorNode) -> tuple[FactorNode, FactorNode]:
-        a_score = abs(parent_a.evaluation.validation_ic) if parent_a.evaluation else float("-inf")
-        b_score = abs(parent_b.evaluation.validation_ic) if parent_b.evaluation else float("-inf")
+    def _choose_primary(self, parent_a: FactorNode, parent_b: FactorNode) -> tuple[FactorNode, FactorNode]:
+        a_score = self._node_decision_score(parent_a)
+        b_score = self._node_decision_score(parent_b)
         if b_score > a_score:
             return parent_b, parent_a
         return parent_a, parent_b
+
+    def _node_decision_score(self, node: FactorNode) -> float:
+        if node.evaluation is None:
+            return float("-inf")
+        value = node.evaluation.train_ic if self.train_only else node.evaluation.validation_ic
+        return abs(value)

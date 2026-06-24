@@ -119,7 +119,10 @@ class PriorFusionPolicy:
         recent_delta = float(
             lineage_state.get(
                 "lineage_trend_signal",
-                lineage_state.get("recent_mean_validation_ic_delta", lineage_state.get("recent_mean_validation_icir_delta", 0.0)),
+                lineage_state.get(
+                    "recent_mean_decision_ic_strength_delta",
+                    lineage_state.get("recent_mean_validation_ic_delta", 0.0),
+                ),
             )
             or 0.0
         )

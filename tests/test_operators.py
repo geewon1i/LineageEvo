@@ -63,3 +63,13 @@ def test_parent_score_penalizes_large_train_validation_ic_gap():
     assert selector.parent_score(stable) == pytest.approx(0.10)
     assert selector.parent_score(overfit) < selector.parent_score(stable)
     assert selector._score_weighted_choice([stable, overfit]).factor_id == stable.factor_id
+
+
+def test_train_only_parent_score_uses_train_ic_only():
+    dag = LineageDAG()
+    train_strong = dag.add_seed(FactorExpression("close"), EvaluationResult(0.20, 2.0, 0.01, 0.1))
+    valid_strong = dag.add_seed(FactorExpression("open"), EvaluationResult(0.05, 0.5, 0.30, 3.0))
+    selector = ParentSelector(SearchConfig(train_only=True), rng=random.Random(1))
+
+    assert selector.parent_score(train_strong) == pytest.approx(0.20)
+    assert selector.parent_score(valid_strong) == pytest.approx(0.05)

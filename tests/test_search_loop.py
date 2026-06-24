@@ -151,6 +151,37 @@ def test_duplicate_retry_reuses_parent_and_adds_feedback():
     ]
 
 
+def test_candidate_request_uses_absolute_parent_metric_strengths():
+    dag = LineageDAG()
+    seed = dag.add_seed(FactorExpression("close"), EvaluationResult(-0.02, -0.3, -0.01, -0.2))
+    generator = MockCandidateGenerator(['{"factor": "rank(close)"}'])
+    engine = SearchEngine(
+        run_id="run",
+        dag=dag,
+        validator=Validator({"close"}, {"rank"}),
+        evaluator=MockEvaluator(),
+        prior_stores=PriorStores(
+            mutation_by_lineage={seed.lineage_id: mutation_prior()},
+            crossover_by_lineage={seed.lineage_id: crossover_prior()},
+            global_mutation=global_mutation_prior(),
+            global_crossover=global_crossover_prior(),
+        ),
+        prior_rewriter=MockPriorRewriter(),
+        prior_manager=PriorManager(),
+        config=SearchConfig(mutation_per_generation=1, crossover_per_generation=0, max_attempts_per_operator_slot=1),
+        candidate_generator=generator,
+    )
+
+    engine.run_generation(1)
+
+    metrics = generator.requests[0].parent_metrics[0]
+    assert metrics["train_ic_strength"] == 0.02
+    assert metrics["train_icir_strength"] == 0.3
+    assert metrics["validation_ic_strength"] == 0.01
+    assert metrics["validation_icir_strength"] == 0.2
+    assert "train_ic" not in metrics
+
+
 def test_run_until_target_stops_on_runtime_limit(tmp_path):
     dag = LineageDAG()
     seed = dag.add_seed(FactorExpression("close"), EvaluationResult(0, 0.1, 0, 0.1))

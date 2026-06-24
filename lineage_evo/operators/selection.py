@@ -72,6 +72,8 @@ class ParentSelector:
         if node.evaluation is None:
             return 0.0
         train = abs(node.evaluation.train_ic)
+        if self.config.train_only:
+            return train
         valid = abs(node.evaluation.validation_ic)
         gap = abs(train - valid)
         return (

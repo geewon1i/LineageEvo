@@ -1,6 +1,7 @@
 import pytest
 
 from lineage_evo import cli
+from lineage_evo.config import QlibConfig
 
 
 def test_cli_dry_run_mock_candidate(capsys, monkeypatch):
@@ -66,6 +67,26 @@ def test_ablation_mode_argument_aliases_are_supported(monkeypatch, tmp_path):
         ],
     )
     cli.main()
+
+
+def test_qlib_config_merges_validation_period_when_train_only_configured():
+    class Args:
+        provider_uri = None
+        market = None
+        train_start = None
+        train_end = None
+        valid_start = None
+        valid_end = None
+        test_start = None
+        test_end = None
+        benchmark = None
+        train_only = False
+
+    base = QlibConfig(train_end="2020-12-31", valid_end="2022-04-30")
+
+    qlib_config = cli._qlib_config_from_args(Args(), base, train_only=True)
+
+    assert qlib_config.train_end == "2022-04-30"
 
 
 def test_print_final_outputs_includes_test_and_backtest_summary(tmp_path, capsys):

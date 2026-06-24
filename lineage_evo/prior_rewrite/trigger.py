@@ -49,19 +49,26 @@ class PriorUpdateTrigger:
         if parent is None or child is None or delta is None:
             return self._decision(False, "minor_fluctuation", operator, generation)
 
+        parent_decision_strength = self._decision_strength(parent)
+        child_decision_strength = self._decision_strength(child)
+        delta_decision_strength = child_decision_strength - parent_decision_strength
         delta_train_strength = abs(child.train_ic) - abs(parent.train_ic)
         delta_validation_strength = abs(child.validation_ic) - abs(parent.validation_ic)
-        improvement_threshold = self._improvement_threshold(abs(parent.validation_ic))
-        degradation_threshold = self._degradation_threshold(abs(parent.validation_ic))
+        improvement_threshold = self._improvement_threshold(parent_decision_strength)
+        degradation_threshold = self._degradation_threshold(parent_decision_strength)
         train_improvement_threshold = self._improvement_threshold(abs(parent.train_ic))
 
-        if delta_validation_strength >= improvement_threshold - self._EPSILON:
-            reason = "significant_validation_improvement"
+        if delta_decision_strength >= improvement_threshold - self._EPSILON:
+            reason = "significant_train_improvement" if self.config.train_only else "significant_validation_improvement"
             should = True
-        elif -delta_validation_strength >= degradation_threshold - self._EPSILON:
-            reason = "significant_validation_degradation"
+        elif -delta_decision_strength >= degradation_threshold - self._EPSILON:
+            reason = "significant_train_degradation" if self.config.train_only else "significant_validation_degradation"
             should = True
-        elif delta_train_strength >= train_improvement_threshold - self._EPSILON and delta_validation_strength <= self._EPSILON:
+        elif (
+            not self.config.train_only
+            and delta_train_strength >= train_improvement_threshold - self._EPSILON
+            and delta_validation_strength <= self._EPSILON
+        ):
             reason = "potential_overfitting"
             should = True
         else:
@@ -97,6 +104,10 @@ class PriorUpdateTrigger:
 
     def _degradation_threshold(self, parent_strength: float) -> float:
         return max(self.config.degradation_abs_floor, self.config.degradation_ratio * parent_strength)
+
+    def _decision_strength(self, result: EvaluationResult) -> float:
+        value = result.train_ic if self.config.train_only else result.validation_ic
+        return abs(value)
 
 
 @dataclass(frozen=True)

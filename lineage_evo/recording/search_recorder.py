@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from lineage_evo.lineage import LineageDAG
+from lineage_evo.recording.lineage_forest import write_lineage_forest_artifacts
 
 
 class SearchRecorder:
@@ -22,6 +23,10 @@ class SearchRecorder:
         self.dag_events_path = self.log_dir / "dag_events.jsonl"
         self.summary_path = self.log_dir / "summary_results.csv"
         self.final_pool_path = self.log_dir / "final_factor_pool.csv"
+        self.elite_archive_path = self.log_dir / "elite_archive.csv"
+        self.lineage_forest_svg_path = self.log_dir / "lineage_forest.svg"
+        self.lineage_forest_png_path = self.log_dir / "lineage_forest.png"
+        self.lineage_forest_mapping_path = self.log_dir / "lineage_forest_factor_mapping.csv"
         self.config_path = self.log_dir / "config_snapshot.json"
 
     def log_search(self, record: dict[str, Any]) -> None:
@@ -70,22 +75,45 @@ class SearchRecorder:
         self._write_csv(self.summary_path, [summary])
 
     def write_final_factor_pool(self, dag: LineageDAG) -> None:
+        self._write_csv(self.final_pool_path, self._factor_rows(dag, dag.active_ids, rank_field="active_rank"))
+
+    def write_elite_archive(self, dag: LineageDAG) -> None:
+        ranked_ids = sorted(dag.elite_ids, key=lambda factor_id: self._decision_score(dag, factor_id), reverse=True)
+        self._write_csv(self.elite_archive_path, self._factor_rows(dag, ranked_ids, rank_field="elite_rank"))
+
+    def write_lineage_forest(self, dag: LineageDAG) -> dict[str, Path]:
+        return write_lineage_forest_artifacts(dag, self.log_dir)
+
+    @staticmethod
+    def _factor_rows(dag: LineageDAG, factor_ids: list[str], *, rank_field: str) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
-        for factor_id in dag.active_ids:
+        for rank, factor_id in enumerate(factor_ids, start=1):
             node = dag.nodes[factor_id]
             rows.append(
                 {
+                    rank_field: rank,
                     "factor_id": node.factor_id,
                     "lineage_id": node.lineage_id,
                     "generation": node.generation,
+                    "is_active": node.is_active,
                     "expression": node.expression.raw,
                     "train_ic": node.evaluation.train_ic if node.evaluation else None,
                     "train_icir": node.evaluation.train_icir if node.evaluation else None,
                     "validation_ic": node.evaluation.validation_ic if node.evaluation else None,
                     "validation_icir": node.evaluation.validation_icir if node.evaluation else None,
+                    "decision_metric": "train_ic" if dag.train_only else "validation_ic",
+                    "decision_score": SearchRecorder._decision_score(dag, factor_id),
                 }
             )
-        self._write_csv(self.final_pool_path, rows)
+        return rows
+
+    @staticmethod
+    def _decision_score(dag: LineageDAG, factor_id: str) -> float | None:
+        node = dag.nodes[factor_id]
+        if node.evaluation is None:
+            return None
+        decision_ic = node.evaluation.train_ic if dag.train_only else node.evaluation.validation_ic
+        return abs(decision_ic)
 
     def write_selected_factors(self, rows: list[dict[str, Any]]) -> None:
         self._write_csv(self.log_dir / "selected_factors.csv", rows)

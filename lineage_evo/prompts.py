@@ -78,6 +78,11 @@ You will receive:
 
 Important principles:
 
+0. Metric semantics:
+   All IC and ICIR values shown to you are absolute predictive strengths.
+   Their original signs are intentionally omitted because factor direction is handled deterministically.
+   Larger IC strength is better. Do not interpret a negative raw IC as failure or require IC to become positive.
+
 1. Operator-conditioned generation:
    Use different reasoning depending on the operator.
    For mutation, improve one parent factor by making a targeted structural modification.
@@ -154,6 +159,13 @@ You will receive:
 Your task:
 Rewrite the complete updated semantic prior state.
 
+Metric semantics:
+- Every IC and ICIR value provided in evolutionary evidence is an absolute predictive strength.
+- Original factor signs are intentionally omitted because factor orientation is handled by deterministic code.
+- Every IC strength delta is computed as abs(child_IC) - abs(parent_IC).
+- A positive strength delta means improvement; a negative strength delta means degradation.
+- Never treat a negative raw IC as failure, and never require IC to become positive.
+
 Definitions:
 - Mutation semantic prior stores successful and failed mutation patterns, plus a hint.
 - Crossover prior stores transferable patterns, harmful patterns, complementarity profile, heritable structures, plus a hint.
@@ -175,8 +187,8 @@ Important principles:
 
 3. Success / failure evidence:
    Do not treat every small metric change as success or failure.
-   Strengthen successful patterns only when the update trigger indicates meaningful validation IC-strength improvement.
-   Record failed patterns only when the update trigger indicates meaningful validation IC-strength degradation, or when there is clear instability / overfitting evidence.
+   Strengthen successful patterns only when the update trigger indicates meaningful IC-strength improvement.
+   Record failed patterns only when the update trigger indicates meaningful IC-strength degradation, or when there is clear instability / overfitting evidence.
 
 4. Search-control states are read-only:
    Do not output or modify quality_trend, stagnation_state, or mutation_strength.
@@ -321,6 +333,9 @@ Current parent factor:
 Parent factor metrics:
 <<PARENT_FACTOR_METRICS>>
 
+Metric note:
+All IC / ICIR values above are absolute strengths. Larger is better; factor direction is handled by deterministic code.
+
 Rendered lineage mutation experience:
 <<RENDERED_LINEAGE_MUTATION_EXPERIENCE_TEXT>>
 
@@ -464,6 +479,9 @@ Primary parent factor:
 Primary parent metrics:
 <<PRIMARY_PARENT_METRICS>>
 
+Metric note:
+All IC / ICIR values are absolute strengths. Larger is better; factor direction is handled by deterministic code.
+
 Rendered primary parent crossover experience:
 <<RENDERED_PRIMARY_LINEAGE_CROSSOVER_EXPERIENCE_TEXT>>
 
@@ -591,8 +609,8 @@ Target prior type:
 mutation_lineage_semantic_prior
 
 Field meanings:
-- successful_mutation_patterns: mutation patterns that have repeatedly or significantly improved validation performance.
-- failed_mutation_patterns: mutation patterns that caused significant validation degradation, invalidity, instability, or overfitting.
+- successful_mutation_patterns: mutation patterns that have repeatedly or significantly improved IC strength.
+- failed_mutation_patterns: mutation patterns that caused significant IC-strength degradation, invalidity, instability, or overfitting.
 - hint: a concise LLM-authored high-level experience note for this mutation lineage. It may include financial intuition, search taste, structural preference, risk warning, or mutation-specific reflection.
 - bias_risk: whether the lineage is over-relying on narrow patterns or showing train-validation inconsistency.
 
@@ -616,9 +634,9 @@ Update trigger:
 
 Update rules:
 - If should_rewrite_prior is false, preserve most of the old prior and avoid adding strong new success/failure patterns.
-- If trigger_reason indicates significant validation improvement, strengthen the relevant successful mutation pattern.
-- If trigger_reason indicates significant validation degradation, record the relevant failed mutation pattern.
-- If train improves but validation does not improve, do not treat it as a strong success; increase bias_risk if appropriate.
+- If trigger_reason indicates significant train or validation IC-strength improvement, strengthen the relevant successful mutation pattern.
+- If trigger_reason indicates significant train or validation IC-strength degradation, record the relevant failed mutation pattern.
+- If train IC strength improves but validation IC strength does not, do not treat it as a strong success; increase bias_risk if appropriate.
 - You may rewrite hint based on old prior and new evidence.
 - The hint should summarize high-level lineage experience or search taste, not merely repeat one concrete pattern.
 - Preserve useful old prior information.
@@ -627,7 +645,7 @@ Update rules:
 - Keep at most 5 failed mutation patterns.
 - Each evidence string must be no longer than 240 characters.
 - Single new evidence should usually produce low or medium confidence, not high confidence.
-- High confidence requires repeated support or strong validation improvement.
+- High confidence requires repeated support or strong IC-strength improvement.
 
 Output strict JSON with this schema:
 
@@ -677,8 +695,8 @@ Update trigger:
 
 Update rules:
 - If should_rewrite_prior is false, preserve most of the old prior and avoid adding strong new transferable or harmful patterns.
-- If trigger_reason indicates significant validation improvement, strengthen transferable or heritable structures from the primary lineage.
-- If trigger_reason indicates significant validation degradation, record harmful patterns or increase crossover risk.
+- If trigger_reason indicates significant train or validation IC-strength improvement, strengthen transferable or heritable structures from the primary lineage.
+- If trigger_reason indicates significant train or validation IC-strength degradation, record harmful patterns or increase crossover risk.
 - If the child benefits from replacing or enriching a primary-parent subtree using secondary-parent information, update the complementarity profile.
 - Do not blindly copy all structures from the secondary parent.
 - You may rewrite hint based on old prior and new evidence.
@@ -731,9 +749,9 @@ Update rules:
 - Global prior should only capture patterns that may generalize across lineages.
 - Do not overfit global prior to one lineage.
 - If should_rewrite_prior is false, preserve most of the old prior.
-- If trigger_reason indicates significant validation improvement, you may update a general successful mutation pattern, but keep confidence conservative unless supported by multiple lineages.
-- If trigger_reason indicates significant validation degradation, record possible failure or overfitting.
-- If train improves but validation does not, record possible overfitting or failure.
+- If trigger_reason indicates significant train or validation IC-strength improvement, you may update a general successful mutation pattern, but keep confidence conservative unless supported by multiple lineages.
+- If trigger_reason indicates significant train or validation IC-strength degradation, record possible failure or overfitting.
+- If train IC strength improves but validation IC strength does not, record possible overfitting or failure.
 - You may rewrite hint based on old global prior and new evidence.
 - The hint should summarize high-level global mutation experience, not merely repeat one concrete pattern.
 - Preserve useful old global prior information.
@@ -782,8 +800,8 @@ Update rules:
 - Global crossover prior should summarize cross-lineage transferable patterns and complementarity patterns.
 - Do not overfit to one crossover event.
 - If should_rewrite_prior is false, preserve most of the old prior.
-- If trigger_reason indicates significant validation improvement, update useful complementarity or transferable patterns.
-- If trigger_reason indicates significant validation degradation, update harmful crossover patterns or risk guidance.
+- If trigger_reason indicates significant train or validation IC-strength improvement, update useful complementarity or transferable patterns.
+- If trigger_reason indicates significant train or validation IC-strength degradation, update harmful crossover patterns or risk guidance.
 - You may rewrite hint based on old global prior and new evidence.
 - The hint should summarize high-level global crossover experience, not merely repeat one concrete pattern.
 - Preserve useful old prior information.

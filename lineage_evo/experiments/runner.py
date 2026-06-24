@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import itertools
 import time
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 
 from lineage_evo.candidate import CandidateGenerator, MockCandidateGenerator
@@ -59,10 +59,14 @@ class ExperimentRunner:
         self.evaluator = evaluator
         self.validator = validator
         self.seed_generator = seed_generator
-        self.qlib_config = qlib_config
         self.selection_config = selection_config or SelectionConfig()
+        if self.config.train_only:
+            self.selection_config = replace(self.selection_config, selection_metric="train_ic")
         self.backtest_config = backtest_config or BacktestConfig(enabled=False)
-        self.prior_update_config = prior_update_config or PriorUpdateConfig()
+        self.prior_update_config = replace(prior_update_config or PriorUpdateConfig(), train_only=self.config.train_only)
+        if self.config.train_only and qlib_config is not None:
+            qlib_config = replace(qlib_config, train_end=qlib_config.valid_end)
+        self.qlib_config = qlib_config
         self.component_names = component_names or {}
         self.extra_config = extra_config or {}
         self.reporter = reporter
@@ -72,6 +76,7 @@ class ExperimentRunner:
         validator = self.validator or QlibExpressionValidator(max_length=self.config.factor_length_limit, execute_check=False)
         dag = LineageDAG(
             active_pool_size=self.config.active_pool_size,
+            train_only=self.config.train_only,
             elite_archive_size=self.config.elite_archive_size,
             max_active_lineage_ratio=self.config.max_active_lineage_ratio,
             min_active_lineages_before_cap=self.config.min_active_lineages_before_cap,

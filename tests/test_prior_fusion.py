@@ -10,7 +10,7 @@ def test_prior_fusion_prefers_local_when_lineage_is_healthy():
     context = PriorFusionPolicy().fuse(
         PriorFusionInput(
             ablation_context=ablation,
-            lineage_state={"recent_mean_validation_ic_delta": 0.002, "train_validation_ic_gap": 0.001},
+            lineage_state={"recent_mean_decision_ic_strength_delta": 0.002, "train_validation_ic_gap": 0.001},
         )
     )
     decision = context.prompt_context["fusion_decision"]
@@ -25,7 +25,7 @@ def test_prior_fusion_prefers_global_for_stagnant_or_biased_lineage():
     context = PriorFusionPolicy().fuse(
         PriorFusionInput(
             ablation_context=ablation,
-            lineage_state={"recent_mean_validation_ic_delta": -0.003, "train_validation_ic_gap": 0.025},
+            lineage_state={"recent_mean_decision_ic_strength_delta": -0.003, "train_validation_ic_gap": 0.025},
         )
     )
     decision = context.prompt_context["fusion_decision"]

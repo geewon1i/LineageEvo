@@ -24,29 +24,40 @@ class EvaluationResult:
             "validation_icir": self.validation_icir,
         }
 
+    def as_llm_dict(self) -> dict[str, float | str]:
+        """Return direction-free predictive strengths for LLM prompts."""
+
+        return {
+            "train_ic_strength": abs(self.train_ic),
+            "train_icir_strength": abs(self.train_icir),
+            "validation_ic_strength": abs(self.validation_ic),
+            "validation_icir_strength": abs(self.validation_icir),
+            "metric_semantics": "absolute strength; larger is better; sign is intentionally omitted",
+        }
+
 
 @dataclass(frozen=True)
 class ScoreDelta:
-    train_ic_delta: float
-    validation_ic_delta: float
-    train_icir_delta: float
-    validation_icir_delta: float
+    train_ic_strength_delta: float
+    validation_ic_strength_delta: float
+    train_icir_strength_delta: float
+    validation_icir_strength_delta: float
 
     def as_dict(self) -> dict[str, float]:
         return {
-            "train_ic_delta": self.train_ic_delta,
-            "validation_ic_delta": self.validation_ic_delta,
-            "train_icir_delta": self.train_icir_delta,
-            "validation_icir_delta": self.validation_icir_delta,
+            "train_ic_strength_delta": self.train_ic_strength_delta,
+            "validation_ic_strength_delta": self.validation_ic_strength_delta,
+            "train_icir_strength_delta": self.train_icir_strength_delta,
+            "validation_icir_strength_delta": self.validation_icir_strength_delta,
         }
 
     @classmethod
     def from_results(cls, parent: EvaluationResult, child: EvaluationResult) -> "ScoreDelta":
         return cls(
-            train_ic_delta=child.train_ic - parent.train_ic,
-            validation_ic_delta=child.validation_ic - parent.validation_ic,
-            train_icir_delta=child.train_icir - parent.train_icir,
-            validation_icir_delta=child.validation_icir - parent.validation_icir,
+            train_ic_strength_delta=abs(child.train_ic) - abs(parent.train_ic),
+            validation_ic_strength_delta=abs(child.validation_ic) - abs(parent.validation_ic),
+            train_icir_strength_delta=abs(child.train_icir) - abs(parent.train_icir),
+            validation_icir_strength_delta=abs(child.validation_icir) - abs(parent.validation_icir),
         )
 
 
